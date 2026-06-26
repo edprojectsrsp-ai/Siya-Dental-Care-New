@@ -1,0 +1,302 @@
+"""DentAssist v2 — All SQLAlchemy models"""
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Integer, Boolean, Text, Date, Time, DateTime, Numeric, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+def utcnow(): return datetime.now(timezone.utc)
+
+class Clinic(Base):
+    __tablename__ = "clinics"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    short_name = Column(String(30), nullable=False)
+    address = Column(Text, nullable=False)
+    google_maps_link = Column(Text)
+    phone = Column(String(15), nullable=False)
+    whatsapp_number = Column(String(15), nullable=False)
+    timings = Column(JSONB, default={})
+    logo_url = Column(Text)
+    doctor_name = Column(String(100))
+    doctor_degree = Column(String(200))
+    doctor_reg_no = Column(String(50))
+    signature_url = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class Staff(Base):
+    __tablename__ = "staff"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id", ondelete="CASCADE"))
+    name = Column(String(100), nullable=False)
+    role = Column(String(20), nullable=False)
+    phone = Column(String(15), nullable=False)
+    telegram_chat_id = Column(String(50))
+    pin_hash = Column(String(255))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+class Patient(Base):
+    __tablename__ = "patients"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    phone = Column(String(15), nullable=False, unique=True)
+    alternate_whatsapp_number = Column(String(30))
+    age = Column(Integer)
+    gender = Column(String(10))
+    date_of_birth = Column(Date)
+    address = Column(Text)
+    preferred_clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"))
+    total_visits = Column(Integer, default=0)
+    wa_session_state = Column(JSONB, default={})
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    health = relationship("PatientHealth", uselist=False, back_populates="patient")
+
+class PatientHealth(Base):
+    __tablename__ = "patient_health"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), unique=True)
+    diabetes = Column(Boolean, default=False)
+    hypertension = Column(Boolean, default=False)
+    heart_disease = Column(Boolean, default=False)
+    thyroid = Column(Boolean, default=False)
+    asthma = Column(Boolean, default=False)
+    kidney_disease = Column(Boolean, default=False)
+    liver_disease = Column(Boolean, default=False)
+    pregnant = Column(Boolean, default=False)
+    blood_thinner = Column(Boolean, default=False)
+    allergies = Column(Text, default="")
+    previous_surgeries = Column(Text, default="")
+    current_medicines = Column(Text, default="")
+    smoking = Column(Boolean, default=False)
+    tobacco = Column(Boolean, default=False)
+    other_conditions = Column(Text, default="")
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    patient = relationship("Patient", back_populates="health")
+
+class MedicineCatalog(Base):
+    __tablename__ = "medicine_catalog"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(150), nullable=False)
+    category = Column(String(50), nullable=False)
+    strengths = Column(JSONB, default=[])
+    default_strength = Column(String(50))
+    default_dose = Column(String(50))
+    frequencies = Column(JSONB, default=[])
+    default_frequency = Column(String(50))
+    default_duration = Column(String(30))
+    instructions = Column(Text)
+    contraindications = Column(Text)
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class ProcedureCatalog(Base):
+    __tablename__ = "procedure_catalog"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    category = Column(String(50), nullable=False)
+    cost_min = Column(Numeric(10,2), default=0)
+    cost_max = Column(Numeric(10,2), default=0)
+    default_cost = Column(Numeric(10,2), default=0)
+    followup_days = Column(Integer)
+    common_advice = Column(JSONB, default=[])
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class ProcedureMedicineMap(Base):
+    __tablename__ = "procedure_medicine_map"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    procedure_id = Column(UUID(as_uuid=True), ForeignKey("procedure_catalog.id", ondelete="CASCADE"))
+    medicine_id = Column(UUID(as_uuid=True), ForeignKey("medicine_catalog.id", ondelete="CASCADE"))
+    is_default = Column(Boolean, default=True)
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    treatment_plan_id = Column(UUID(as_uuid=True), ForeignKey("treatment_plans.id"))
+    sitting_number = Column(Integer)
+    requested_date = Column(Date, nullable=False)
+    requested_time = Column(Time, nullable=False)
+    confirmed_date = Column(Date)
+    confirmed_time = Column(Time)
+    source = Column(String(20), default="whatsapp")
+    reason = Column(Text)
+    status = Column(String(20), default="pending")
+    phone_number = Column(String(15))
+    queue_position = Column(Integer)
+    arrived_at = Column(DateTime(timezone=True))
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    staff_notes = Column(Text)
+    # Modern hub/workflow + specialist columns (added via migrations 005-015)
+    appointment_type = Column(String(60))
+    chief_complaints = Column(JSONB, default=list)
+    workflow_status = Column(String(30), default="scheduled")
+    contact_status = Column(String(30), default="pending_call")
+    last_contacted_at = Column(DateTime(timezone=True))
+    last_contacted_by = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    reschedule_reason = Column(Text)
+    cancel_reason = Column(Text)
+    duration_minutes = Column(Integer)
+    specialist_id = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    specialist_assigned_at = Column(DateTime(timezone=True))
+    specialist_assigned_by = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    specialist_session_status = Column(String(20))
+    specialist_closed_at = Column(DateTime(timezone=True))
+    specialist_notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    patient = relationship("Patient")
+
+class TreatmentPlan(Base):
+    __tablename__ = "treatment_plans"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    name = Column(String(200), nullable=False)
+    complaint = Column(Text)
+    diagnosis = Column(Text)
+    estimated_cost = Column(Numeric(10,2), default=0)
+    extra_charges = Column(Numeric(10,2), default=0)
+    discount = Column(Numeric(10,2), default=0)
+    final_payable = Column(Numeric(10,2), default=0)
+    total_paid = Column(Numeric(10,2), default=0)
+    balance = Column(Numeric(10,2), default=0)
+    total_sittings_planned = Column(Integer, default=1)
+    sittings_completed = Column(Integer, default=0)
+    status = Column(String(30), default="new")
+    followup_date = Column(Date)
+    followup_notes = Column(Text)
+    internal_notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    items = relationship("TreatmentPlanItem", back_populates="plan", cascade="all, delete-orphan")
+    sittings = relationship("TreatmentSitting", back_populates="plan", cascade="all, delete-orphan")
+    payments = relationship("PaymentTransaction", back_populates="plan")
+    patient = relationship("Patient")
+
+class TreatmentPlanItem(Base):
+    __tablename__ = "treatment_plan_items"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("treatment_plans.id", ondelete="CASCADE"), nullable=False)
+    procedure_catalog_id = Column(UUID(as_uuid=True), ForeignKey("procedure_catalog.id"))
+    procedure_name = Column(String(100), nullable=False)
+    tooth_number = Column(String(10))
+    estimated_cost = Column(Numeric(10,2), default=0)
+    actual_cost = Column(Numeric(10,2))
+    status = Column(String(20), default="advised")
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    plan = relationship("TreatmentPlan", back_populates="items")
+
+class TreatmentSitting(Base):
+    __tablename__ = "treatment_sittings"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("treatment_plans.id", ondelete="CASCADE"), nullable=False)
+    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"))
+    sitting_number = Column(Integer, nullable=False)
+    date = Column(Date)
+    procedures_done = Column(Text)
+    notes = Column(Text)
+    status = Column(String(20), default="planned")
+    amount_collected = Column(Numeric(10,2), default=0)
+    payment_mode = Column(String(20))
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    plan = relationship("TreatmentPlan", back_populates="sittings")
+
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"))
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("treatment_plans.id"))
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("staff.id"), nullable=False)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False)
+    serial_number = Column(Integer)
+    complaint = Column(Text)
+    diagnosis = Column(Text)
+    doctor_raw_notes = Column(Text)
+    medicines = Column(JSONB, default=[])
+    visible_advice = Column(Text)
+    internal_notes = Column(Text)
+    followup_date = Column(Date)
+    pdf_url = Column(Text)
+    sent_via_whatsapp = Column(Boolean, default=False)
+    sent_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("treatment_plans.id"))
+    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"))
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False)
+    amount = Column(Numeric(10,2), nullable=False)
+    payment_mode = Column(String(20), nullable=False)
+    razorpay_payment_id = Column(String(100))
+    razorpay_link_url = Column(Text)
+    remarks = Column(Text)
+    receipt_sent = Column(Boolean, default=False)
+    date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    plan = relationship("TreatmentPlan", back_populates="payments")
+
+class MedicineReminder(Base):
+    __tablename__ = "medicine_reminders"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    prescription_id = Column(UUID(as_uuid=True), ForeignKey("prescriptions.id", ondelete="CASCADE"))
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    medicine_name = Column(String(100), nullable=False)
+    dose = Column(String(50))
+    frequency = Column(String(30))
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    reminder_times = Column(JSONB, default=[])
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+class Media(Base):
+    __tablename__ = "media"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"))
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"))
+    type = Column(String(20), nullable=False)
+    title = Column(String(100))
+    url = Column(Text, nullable=False)
+    category = Column(String(50))
+    show_on_public = Column(Boolean, default=False)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("staff.id"))
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+class QRCode(Base):
+    __tablename__ = "qr_codes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"))
+    source = Column(String(50), nullable=False)
+    whatsapp_url = Column(Text, nullable=False)
+    scan_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+class CommunicationLog(Base):
+    __tablename__ = "communication_log"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"))
+    direction = Column(String(10), nullable=False)
+    channel = Column(String(20), default="whatsapp")
+    content = Column(Text)
+    status = Column(String(20))
+    created_at = Column(DateTime(timezone=True), default=utcnow)

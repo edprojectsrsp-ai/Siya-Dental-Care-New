@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dentassist-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dentassist
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Fresh-machine bootstrap: loads the FULL 87-table database (schema + data)
+      # on first start (empty volume only). Existing volumes are left untouched.
+      - ./db_init/full_database.sql:/docker-entrypoint-initdb.d/001.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  api:
+    build: .
+    container_name: dentassist-api
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/dentassist
+    depends_on:
+      db: {condition: service_healthy}
+    volumes: ["./app:/app/app"]
+volumes:
+  pgdata:
