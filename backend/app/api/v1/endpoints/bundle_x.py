@@ -1,5 +1,5 @@
 ﻿"""
-backend/app/api/v1/endpoints/bundle_x.py â€” Bundle X Pass 2 + 3
+backend/app/api/v1/endpoints/bundle_x.py — Bundle X Pass 2 + 3
 
 All new endpoints for Bundle X Passes 2 & 3:
   Module Visibility:
@@ -115,9 +115,9 @@ async def _ensure_reopened_patient_followup(
     return str(created["id"])
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # MODULE VISIBILITY
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 modvis_router = APIRouter(prefix="/module-visibility", tags=["Module Visibility"])
 
 KNOWN_MODULES = [
@@ -192,9 +192,9 @@ async def update_module_visibility(body: ModVisBulk, db: AsyncSession = Depends(
     return {"ok": True, "count": len(body.entries)}
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # SPECIALIST VERIFY (doctor closes + generates payable)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 verify_router = APIRouter(tags=["Specialist Verify"])
 
 
@@ -207,7 +207,7 @@ class VerifyIn(BaseModel):
 async def verify_specialist_work(apt_id: UUID, body: VerifyIn,
                                   db: AsyncSession = Depends(get_db),
                                   staff=Depends(get_current_staff)):
-    """Doctor-only: verify specialist's completed work â†’ sets session_status='verified',
+    """Doctor-only: verify specialist's completed work → sets session_status='verified',
        records verified_at/by, and auto-creates an earning (payable) for the specialist."""
     _require_role(staff, "doctor", "admin")
     staff_id = staff.get("staff_id") if isinstance(staff, dict) else str(getattr(staff, "id", ""))
@@ -234,7 +234,7 @@ async def verify_specialist_work(apt_id: UUID, body: VerifyIn,
          WHERE id = :id
     """), {"id": str(apt_id)})
 
-    # Create earning (payable) â€” default amount from rate tier or body
+    # Create earning (payable) — default amount from rate tier or body
     earning_amount = body.earning_amount
     if not earning_amount or earning_amount <= 0:
         # Try to find a default rate from specialist_rate_tiers
@@ -326,9 +326,9 @@ async def verify_specialist_work(apt_id: UUID, body: VerifyIn,
     }
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # CALL & CONFIRM WORKFLOW
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 callconfirm_router = APIRouter(tags=["Call & Confirm"])
 
 
@@ -583,7 +583,7 @@ async def apply_pending_action(apt_id: UUID, body: dict,
                 (appointment_id, action_type, new_value, changed_by_staff_id, notes)
             VALUES (CAST(:a AS UUID), 'pending_applied',
                     jsonb_build_object('new_date', :nd, 'new_time', :nt),
-                    CAST(:by AS UUID), 'Date/time change applied â€” blink cleared')
+                    CAST(:by AS UUID), 'Date/time change applied — blink cleared')
         """), {"a": str(apt_id), "nd": new_date or "", "nt": new_time or "", "by": staff_id})
     except Exception:
         pass
@@ -655,7 +655,7 @@ async def get_booking_gates(patient_id: UUID, db: AsyncSession = Depends(get_db)
         gates.append({"type": "lab_overdue", "message": f"{row['lab_overdue']} lab order(s) overdue",
                        "severity": "warn"})
     if float(row.get("outstanding_balance") or 0) > 5000:
-        gates.append({"type": "balance", "message": f"Outstanding balance â‚¹{float(row['outstanding_balance']):,.0f}",
+        gates.append({"type": "balance", "message": f"Outstanding balance ₹{float(row['outstanding_balance']):,.0f}",
                        "severity": "warn"})
 
     return {
@@ -665,9 +665,9 @@ async def get_booking_gates(patient_id: UUID, db: AsyncSession = Depends(get_db)
     }
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # WORKSHOP TRACKERS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 workshop_router = APIRouter(tags=["Workshop Trackers"])
 
 
@@ -789,9 +789,9 @@ async def workshop_specialist_payables(clinic_id: Optional[UUID] = None,
     } for r in rows]
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # REVENUE DASHBOARD (30-day stacked)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 revenue_router = APIRouter(tags=["Revenue Dashboard"])
 
 
@@ -854,9 +854,9 @@ async def revenue_full(clinic_id: UUID, days: int = Query(30, le=90),
     }
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 # ARCHIVED PATIENTS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
 archived_router = APIRouter(tags=["Archived Patients"])
 
 

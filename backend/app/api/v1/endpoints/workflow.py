@@ -1,7 +1,7 @@
-"""Unified Clinic Hub v2 â€” /api/hub/* endpoints
-Final Workflow Spec: Schedule â†’ Today â†’ Mark Arrived (= Doctor Queue) â†’
-Start Treatment â†’ Close Session/Treatment â†’ Payment Collection â†’ Follow-up/Archive.
-No 'ready' status â€” Arrived IS the queue ('ready' kept as a read alias for old rows).
+"""Unified Clinic Hub v2 — /api/hub/* endpoints
+Final Workflow Spec: Schedule → Today → Mark Arrived (= Doctor Queue) →
+Start Treatment → Close Session/Treatment → Payment Collection → Follow-up/Archive.
+No 'ready' status — Arrived IS the queue ('ready' kept as a read alias for old rows).
 """
 from datetime import datetime, timezone, date as date_type, timedelta
 from typing import Optional, List
@@ -167,7 +167,7 @@ async def _ensure_unscheduled_followup(
     })).mappings().one()
     return str(created["id"])
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── Schemas ───────────────────────────
 class WorkflowMarkIn(BaseModel):
     new_status: str
     cancel_reason: Optional[str] = None
@@ -182,7 +182,7 @@ class CloseSessionIn(BaseModel):
     treatment_notes: Optional[str] = None; next_step: Optional[str] = None
     amount_payable: float; discount_amount: float = 0; discount_reason: Optional[str] = None
     next_appointment_date: Optional[date_type] = None; next_appointment_time: Optional[str] = None
-    archive_plan: bool = False           # True = "Close Treatment" â†’ Archive
+    archive_plan: bool = False           # True = "Close Treatment" → Archive
 class CollectPaymentIn(BaseModel):
     session_id: Optional[UUID] = None
     appointment_id: Optional[UUID] = None
@@ -198,7 +198,7 @@ class CallStatusIn(BaseModel):
     call_status: str                      # pending_call|confirmed|no_answer|call_back_later|cancelled_by_patient|rescheduled
     notes: Optional[str] = None
 
-# Spec workflow: Scheduled â†’ Arrived(=Queue) â†’ In Treatment â†’ Payment Pending â†’ Completed
+# Spec workflow: Scheduled → Arrived(=Queue) → In Treatment → Payment Pending → Completed
 VALID_TRANSITIONS = {
     "scheduled":       ["confirmed", "arrived", "cancelled", "rescheduled"],
     "pending":         ["confirmed", "arrived", "cancelled", "rescheduled"],
@@ -220,7 +220,7 @@ def _norm_call(cs: Optional[str]) -> str:
     if not cs or cs == "not_contacted": return "pending_call"
     return cs
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ TODAY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── TODAY ─────────────────────────────
 @router.get("/today")
 async def hub_today(clinic_id: UUID, date: Optional[date_type] = None, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     target = date or date_type.today()
@@ -291,7 +291,7 @@ async def hub_appointments_range(
     db: AsyncSession = Depends(get_db),
     staff=Depends(get_current_staff),
 ):
-    """Appointments in a date range â€” for command centre calendar / filters."""
+    """Appointments in a date range — for command centre calendar / filters."""
     rows = (await db.execute(sql_text(f"""
         SELECT a.id, a.patient_id, COALESCE(a.confirmed_date, a.requested_date) AS sched_date,
                COALESCE(a.confirmed_time, a.requested_time) AS sched_time,
@@ -469,7 +469,7 @@ async def hub_appointments_range(
         "total": len(rows),
     }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ SCHEDULE / FOLLOW-UP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────── SCHEDULE / FOLLOW-UP ───────────────────
 @router.get("/followup")
 async def hub_followup(clinic_id: UUID, days_ahead: int = 60, include_overdue: bool = True,
                        db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
@@ -612,7 +612,7 @@ async def mark_status(apt_id: UUID, body: WorkflowMarkIn, db: AsyncSession = Dep
             pass
     return {"status": new}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ DOCTOR QUEUE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── DOCTOR QUEUE ──────────────────────
 @router.get("/queue")
 async def hub_queue(clinic_id: UUID, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text(f"""
@@ -678,7 +678,7 @@ async def hub_queue(clinic_id: UUID, db: AsyncSession = Depends(get_db), staff=D
     counts["completed"] = counts["collected"]                 # spec counter naming
     return {"segments": segs, "counts": counts, "collected": revenue, "revenue": revenue}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CALL DIARY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── CALL DIARY ────────────────────────
 @router.get("/call-diary")
 async def call_diary(clinic_id: UUID, days_ahead: int = 7, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text(f"""
@@ -719,7 +719,7 @@ async def set_call_status(apt_id: UUID, body: CallStatusIn, db: AsyncSession = D
         {"cs": body.call_status, "by": str(staff["staff_id"]), "i": str(apt_id)})
     await db.execute(sql_text("""INSERT INTO appointment_call_logs (appointment_id,called_by_staff_id,call_status,notes)
         VALUES(:a,:s,:st,:n)"""), {"a": str(apt_id), "s": str(staff["staff_id"]), "st": body.call_status, "n": body.notes})
-    # Side-effects: confirmed â†’ workflow confirmed; cancelled_by_patient â†’ cancelled
+    # Side-effects: confirmed → workflow confirmed; cancelled_by_patient → cancelled
     if body.call_status == "confirmed" and row["ws"] in ("scheduled", "pending"):
         await db.execute(sql_text("UPDATE appointments SET workflow_status='confirmed',status='confirmed' WHERE id=:i"), {"i": str(apt_id)})
     if body.call_status == "cancelled_by_patient":
@@ -739,7 +739,7 @@ async def set_call_status(apt_id: UUID, body: CallStatusIn, db: AsyncSession = D
         """), {"i": str(apt_id), "cr": (body.notes or "Cancelled by patient (call)").strip()})
     return {"call_status": body.call_status}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ APPOINTMENT TYPES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────── APPOINTMENT TYPES ─────────────────────
 @router.get("/appointment-types")
 async def appointment_types(db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text("SELECT id,type_name FROM appointment_types ORDER BY sort_order,type_name"))).mappings().all()
@@ -755,7 +755,7 @@ async def add_appointment_type(name: str, db: AsyncSession = Depends(get_db), st
     except Exception:
         return {"name": name, "added": False}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ PHONE CHECK (spec popup) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ───────────────────── PHONE CHECK (spec popup) ────────────────
 @router.get("/check-phone/{phone}")
 async def check_phone(phone: str, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     cleaned = _normalize_phone_digits(phone)
@@ -805,7 +805,7 @@ async def check_phone(phone: str, db: AsyncSession = Depends(get_db), staff=Depe
         "last_treatment": r["last_treatment"] or r["last_notes"],
     } for r in rows]}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ ADD PATIENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── ADD PATIENT ───────────────────────
 @router.post("/add-patient", status_code=201)
 async def add_patient(body: AddPatientIn, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     if body.use_existing_id:
@@ -866,7 +866,7 @@ async def add_patient(body: AddPatientIn, db: AsyncSession = Depends(get_db), st
            "ill": json.dumps(body.existing_illnesses)})).mappings().one()
     return {"patient_id": str(row["id"]), "name": body.name, "is_new": True}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CLOSE SESSION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── CLOSE SESSION ─────────────────────
 @router.post("/close-session")
 async def close_session(body: CloseSessionIn, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     sess = (await db.execute(sql_text("SELECT patient_id,clinic_id,appointment_id,doctor_id FROM treatment_sessions WHERE id=:i"),
@@ -911,7 +911,7 @@ async def close_session(body: CloseSessionIn, db: AsyncSession = Depends(get_db)
         VALUES(:c,'payment_to_collect','nurse',:s,:t,:m,'high',:pid,:sid)"""),
         {"c": str(sess["clinic_id"]), "s": None, "t": f"Collect ₹{final:.0f} from {pname}", "m": f"Payment due for {pname}", "pid": str(sess["patient_id"]), "sid": str(body.session_id)})
     next_apt_id = None
-    if body.next_appointment_date and not body.archive_plan:   # Close Session â†’ goes to Schedule
+    if body.next_appointment_date and not body.archive_plan:   # Close Session → goes to Schedule
         next_time = _parse_time_input(body.next_appointment_time, "10:00")
         na = (await db.execute(sql_text("""INSERT INTO appointments (patient_id,clinic_id,doctor_id,requested_date,requested_time,reason,source,status,workflow_status,created_at)
             VALUES(:p,:c,:d,:dt,:tm,:r,'followup','scheduled','scheduled',NOW()) RETURNING id"""),
@@ -926,7 +926,7 @@ async def close_session(body: CloseSessionIn, db: AsyncSession = Depends(get_db)
             doctor_id=str(sess["doctor_id"]) if sess["doctor_id"] else None,
             reason=body.next_step or "Follow-up",
         )
-    if body.archive_plan:                                       # Close Treatment â†’ Archive
+    if body.archive_plan:                                       # Close Treatment → Archive
         await db.execute(sql_text("UPDATE treatment_plans SET status='closed',is_archived=TRUE,archived_at=NOW(),updated_at=NOW() WHERE patient_id=:p AND is_archived=FALSE"),
                          {"p": str(sess["patient_id"])})
     if sess["appointment_id"]:
@@ -938,7 +938,7 @@ async def close_session(body: CloseSessionIn, db: AsyncSession = Depends(get_db)
     return {"session_id": str(body.session_id), "final_amount": final, "next_appointment_id": next_apt_id,
             "archived": body.archive_plan}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ COLLECT PAYMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ───────────────────────── COLLECT PAYMENT ─────────────────────
 @router.post("/collect-payment")
 async def collect_payment(body: CollectPaymentIn, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     session_id = body.session_id
@@ -970,7 +970,7 @@ async def collect_payment(body: CollectPaymentIn, db: AsyncSession = Depends(get
     new_total = already + total
     if new_total - payable > 0.01:
         balance = max(payable - already, 0)
-        raise HTTPException(400, f"Payment exceeds payable amount. Remaining balance is â‚¹{balance:,.2f}")
+        raise HTTPException(400, f"Payment exceeds payable amount. Remaining balance is ₹{balance:,.2f}")
     await db.execute(sql_text("""UPDATE treatment_sessions SET amount_collected=:t,balance_remaining=GREATEST(amount_payable-:t,0),
         payment_collected_at=NOW(),payment_collected_by=:n,status=CASE WHEN :t>=amount_payable THEN 'completed' ELSE 'partial_payment' END WHERE id=:i"""),
         {"t": new_total, "n": str(staff["staff_id"]), "i": str(session_id)})
@@ -1023,7 +1023,7 @@ async def return_to_today(apt_id: UUID, db: AsyncSession = Depends(get_db), staf
     await db.commit()
     return {"ok": True, "status": "confirmed", "date": date_type.today().isoformat()}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ BILLING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── BILLING ───────────────────────────
 @router.get("/billing-today")
 async def billing_today(clinic_id: UUID, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text(
@@ -1032,7 +1032,7 @@ async def billing_today(clinic_id: UUID, db: AsyncSession = Depends(get_db), sta
     by_mode = {r["payment_mode"]: {"count": r["cnt"], "amount": float(r["total"])} for r in rows}
     return {"date": date_type.today().isoformat(), "total": sum(v["amount"] for v in by_mode.values()), "by_mode": by_mode}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CONDITIONS & COMPLAINTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────── CONDITIONS & COMPLAINTS ───────────────────
 @router.get("/conditions")
 async def get_conditions(db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text("SELECT id,condition_name,category FROM common_conditions ORDER BY category,condition_name"))).mappings().all()
@@ -1067,7 +1067,7 @@ async def add_complaint(name: str, db: AsyncSession = Depends(get_db), staff=Dep
     except Exception:
         return {"name": name, "added": False}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ RESCHEDULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── RESCHEDULE ────────────────────────
 @router.post("/reschedule/{apt_id}")
 async def reschedule(apt_id: UUID, body: RescheduleIn, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     """status='scheduled' pushes to Schedule; status='confirmed' + today pulls into Today."""
@@ -1151,7 +1151,7 @@ async def update_time(apt_id: UUID, body: TimeEditIn, db: AsyncSession = Depends
     if res.rowcount == 0: raise HTTPException(404, "Appointment not found")
     return {"updated": True, "time": body.new_time}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ WHATSAPP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── WHATSAPP ──────────────────────────
 @router.get("/bulk-whatsapp")
 async def bulk_whatsapp(clinic_id: UUID, only_uncontacted: bool = True, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     filt = "AND NOT EXISTS (SELECT 1 FROM appointment_call_logs WHERE appointment_id=a.id)" if only_uncontacted else ""
@@ -1166,7 +1166,7 @@ async def bulk_whatsapp(clinic_id: UUID, only_uncontacted: bool = True, db: Asyn
     """), {"c": str(clinic_id)})).mappings().all()
     result = []
     for r in rows:
-        msg = f"Hi {r['name']}, your appointment at {r['cname']} is today at {str(r['t'])[:5] if r['t'] else 'scheduled time'}. Please confirm. â€” {r['cname']}"
+        msg = f"Hi {r['name']}, your appointment at {r['cname']} is today at {str(r['t'])[:5] if r['t'] else 'scheduled time'}. Please confirm. — {r['cname']}"
         ph = "".join(c for c in (r["alternate_whatsapp_number"] or r["phone"] or "") if c.isdigit())
         if len(ph) == 10: ph = "91" + ph
         result.append({"apt_id": str(r["id"]), "patient_name": r["name"], "phone": r["phone"],
@@ -1186,7 +1186,7 @@ async def doctor_day_list(clinic_id: UUID, doctor_phone: Optional[str] = None,
           AND COALESCE(a.workflow_status,a.status) NOT IN ('cancelled','rejected')
         ORDER BY COALESCE(a.confirmed_time,a.requested_time) NULLS LAST
     """), {"c": str(clinic_id)})).mappings().all()
-    icon = {"new": "ðŸŸ ", "followup": "ðŸ”µ", "walkin": "ðŸŸ£", "emergency": "ðŸ”´"}
+    icon = {"new": "🟠", "followup": "🔵", "walkin": "🟣", "emergency": "🔴"}
     
     expected = len(rows)
     arrived = sum(1 for r in rows if r["ws"] in ("arrived", "ready"))
@@ -1194,18 +1194,18 @@ async def doctor_day_list(clinic_id: UUID, doctor_phone: Optional[str] = None,
     payment_pending = sum(1 for r in rows if r["ws"] == "payment_pending")
 
     lines = [
-        f"ðŸ“‹ Today's Appointments â€” {rows[0]['cname'] if rows else ''} ({date_type.today().strftime('%d-%b-%Y')})",
-        f"ðŸ“Š Summary:",
-        f"  â€¢ Expected Today: {expected}",
-        f"  â€¢ Arrived/Waiting: {arrived}",
-        f"  â€¢ Completed: {completed}",
-        f"  â€¢ Payment Pending: {payment_pending}",
+        f"📋 Today's Appointments — {rows[0]['cname'] if rows else ''} ({date_type.today().strftime('%d-%b-%Y')})",
+        f"📊 Summary:",
+        f"  • Expected Today: {expected}",
+        f"  • Arrived/Waiting: {arrived}",
+        f"  • Completed: {completed}",
+        f"  • Payment Pending: {payment_pending}",
         "",
-        "â° Appointment List:"
+        "⏰ Appointment List:"
     ]
     for i, r in enumerate(rows, 1):
-        t = str(r["t"])[:5] if r["t"] else "â€”"
-        lines.append(f"{i}. {t} {icon.get(r['pt'],'â€¢')} {r['name']} â€” {r['appointment_type'] or r['reason'] or 'Consultation'}")
+        t = str(r["t"])[:5] if r["t"] else "—"
+        lines.append(f"{i}. {t} {icon.get(r['pt'],'•')} {r['name']} — {r['appointment_type'] or r['reason'] or 'Consultation'}")
     if not rows: lines.append("No appointments yet.")
     msg = "\n".join(lines)
     ph = "".join(ch for ch in (doctor_phone or "") if ch.isdigit())
@@ -1213,7 +1213,7 @@ async def doctor_day_list(clinic_id: UUID, doctor_phone: Optional[str] = None,
     return {"count": len(rows), "message": msg,
             "whatsapp_url": f"https://wa.me/{ph}?text={quote(msg)}" if ph else f"https://wa.me/?text={quote(msg)}"}
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ BOOK (walk-in / appointment with full spec data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────── BOOK (walk-in / appointment with full spec data) ───────────
 class BookIn(BaseModel):
     patient_id: UUID; clinic_id: UUID
     date: Optional[date_type] = None; time: Optional[str] = None
@@ -1259,7 +1259,7 @@ async def hub_book(body: BookIn, db: AsyncSession = Depends(get_db), staff=Depen
          "ph": body.phone_number})).mappings().one()
     return {"appointment_id": str(row["id"]), "date": d.isoformat()}
 
-# â•â• PENDING BOOKING REQUESTS (from website/WhatsApp) â•â•â•â•â•â•â•â•â•â•â•â•
+# ══ PENDING BOOKING REQUESTS (from website/WhatsApp) ════════════
 @router.get("/pending-requests")
 async def hub_pending_requests(clinic_id: str = Query(...), db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     rows = (await db.execute(sql_text(
@@ -1280,24 +1280,24 @@ async def hub_confirm_request(request_id: int, body: dict, db: AsyncSession = De
     if req.get("status") != "pending":
         raise HTTPException(409, f"Request already {req.get('status')}")
 
-    # Date: body override â†’ request preferred_date â†’ today
+    # Date: body override → request preferred_date → today
     d = body.get("date") or (str(req["preferred_date"]) if req.get("preferred_date") else str(date_type.today()))
     if isinstance(d, str):
         d = date_type.fromisoformat(d)
 
-    # Time: body override â†’ request preferred_time (text â†’ parse) â†’ default 10:00
+    # Time: body override → request preferred_time (text → parse) → default 10:00
     t_raw = body.get("time") or req.get("preferred_time") or "10:00"
     # Normalise time string (accept "10:00", "10:00 AM", "10am" etc.)
     t = _parse_time_input(_normalize_time(t_raw), "10:00")
 
-    # Clinic id: request â†’ staff default â†’ fail
+    # Clinic id: request → staff default → fail
     cid = req.get("clinic_id") or staff.get("clinic_id") if isinstance(staff, dict) else None
     if not cid and hasattr(staff, "clinic_id"): cid = staff.clinic_id
     if not cid:
-        raise HTTPException(400, "Cannot confirm â€” no clinic_id on request and staff has no default clinic. Pick a clinic and try again.")
+        raise HTTPException(400, "Cannot confirm — no clinic_id on request and staff has no default clinic. Pick a clinic and try again.")
     cid = str(cid)
 
-    # Source: map appointment_requests.source â†’ appointments_source_check allowed values
+    # Source: map appointment_requests.source → appointments_source_check allowed values
     src_raw = (req.get("source") or "public_site").lower()
     if "whatsapp" in src_raw or "wa" in src_raw or "bot" in src_raw:
         src = "whatsapp"
@@ -1402,7 +1402,7 @@ async def hub_reject_request(request_id: int, body: dict = {}, db: AsyncSession 
 
 @router.post("/unschedule/{apt_id}")
 async def hub_unschedule(apt_id: UUID, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
-    """Move appointment to unscheduled pool â€” clears date, sets status to pending."""
+    """Move appointment to unscheduled pool — clears date, sets status to pending."""
     res = await db.execute(sql_text(
         "UPDATE appointments SET requested_date=NULL, requested_time=NULL, confirmed_date=NULL, confirmed_time=NULL, scheduled_date=NULL, scheduled_time=NULL, workflow_status='pending', status='pending', contact_status='pending_call', updated_at=NOW() WHERE id=:id"
     ), {"id": str(apt_id)})

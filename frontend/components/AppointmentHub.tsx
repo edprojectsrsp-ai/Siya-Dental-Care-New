@@ -114,6 +114,54 @@ const shortDate = (d?: string | null) => {
   catch { return d; }
 };
 
+// Prompt modal — replaces window.prompt() for date / time / reason entry.
+// Native pickers validate input and work inside Capacitor/Android WebView
+// (where window.prompt is blocked).
+type PromptConfig = {
+  title: string;
+  label: string;
+  type: "date" | "time" | "text";
+  value: string;
+  placeholder?: string;
+  submitLabel?: string;
+  danger?: boolean;
+  onSubmit: (value: string) => void;
+};
+function PromptModal({ config, accent, onClose }: { config: PromptConfig; accent: string; onClose: () => void }) {
+  const [val, setVal] = useState(config.value || "");
+  const valid = config.type === "text" ? true : !!val;
+  const submit = () => { if (!valid) return; config.onSubmit(val.trim()); onClose(); };
+  return (
+    <div style={mBg} onClick={onClose}>
+      <div style={{ ...mBox, width: 440, maxWidth: "94vw", padding: 28 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: INK, marginBottom: 2 }}>{config.title}</div>
+        <label style={lbl}>{config.label}</label>
+        {config.type === "text" ? (
+          <textarea autoFocus value={val} onChange={e => setVal(e.target.value)} placeholder={config.placeholder}
+            onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }}
+            style={{ ...inp, minHeight: 92, resize: "vertical" }} />
+        ) : (
+          <input autoFocus type={config.type} value={val} min={config.type === "date" ? todayStr() : undefined}
+            placeholder={config.placeholder} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") submit(); }} style={inp} />
+        )}
+        {config.type === "date" && val && val < todayStr() && (
+          <div style={{ fontSize: 12.5, color: "#B45309", background: "#FEF3C7", borderRadius: 10, padding: "8px 12px", marginTop: 6 }}>
+            ⚠ This date is in the past — double-check before applying.
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ ...ghostBtn(MUTE), padding: "12px 22px" }}>Cancel</button>
+          <button onClick={submit} disabled={!valid}
+            style={{ ...solidBtn(config.danger ? "#EF4444" : accent), padding: "12px 22px", opacity: valid ? 1 : .5, cursor: valid ? "pointer" : "not-allowed" }}>
+            {config.submitLabel || "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Main component.
 export function AppointmentHub({ clinicId, staff, accent = "#059669", show, view = "hub", onNavigate }:
   { clinicId: string; staff: any; accent?: string; show: (m: string) => void;
@@ -140,6 +188,7 @@ export function AppointmentHub({ clinicId, staff, accent = "#059669", show, view
   const [specCallApt, setSpecCallApt] = useState<any>(null);
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [pendingBusy, setPendingBusy] = useState<string | number | null>(null);
+  const [promptModal, setPromptModal] = useState<PromptConfig | null>(null);
   const prevPendingCount = useRef(0);
 
   // Load data.
@@ -279,24 +328,34 @@ export function AppointmentHub({ clinicId, staff, accent = "#059669", show, view
   const moveToDate = async (id: string, date: string, name: string) => { setBusy(id); try { await api.hubMoveAppointment(id, date); show(`✓ ${name} → ${dateLabelShort(date)}`); refreshAll(); } catch (e: any) { show("Error: " + e.message); } finally { setBusy(""); } };
   const moveToUnscheduled = async (id: string, name: string) => { setBusy(id); try { await api.hubUnschedule(id); show(`↩ ${name} → Unscheduled`); refreshAll(); } catch (e: any) { show("Error: " + e.message); } finally { setBusy(""); } };
   const updateTime = async (id: string, t: string) => { try { await api.hubUpdateTime(id, t); show(`✓ Time → ${fmt12(t)}`); refreshAll(); } catch (e: any) { show("Error: " + e.message); } };
-  const applyPendingAction = async (a: any) => {
+  const submitPendingAction = async (a: any, payload: any) => {
     try {
-      const payload: any = {};
-      if (a.pending_action === "change_date") {
-        const newDate = window.prompt(`Enter new date for ${a.patient_name} (YYYY-MM-DD)`, a.pending_new_date || a.scheduled_date || today);
-        if (!newDate) return;
-        payload.new_date = newDate;
-      }
-      if (a.pending_action === "change_time") {
-        const newTime = window.prompt(`Enter new time for ${a.patient_name} (HH:MM)`, a.pending_new_time || a.scheduled_time || "10:00");
-        if (!newTime) return;
-        payload.new_time = newTime;
-      }
       await api.applyPendingAction(a.id, payload);
       show(`✓ Pending ${a.pending_action === "change_date" ? "date" : "time"} applied`);
       refreshAll();
     } catch (e: any) {
       show("Error: " + e.message);
+    }
+  };
+  const applyPendingAction = (a: any) => {
+    if (a.pending_action === "change_date") {
+      setPromptModal({
+        title: `Reschedule ${a.patient_name}`,
+        label: "New appointment date",
+        type: "date",
+        value: a.pending_new_date || a.scheduled_date || today,
+        submitLabel: "Apply date",
+        onSubmit: (v) => submitPendingAction(a, { new_date: v }),
+      });
+    } else if (a.pending_action === "change_time") {
+      setPromptModal({
+        title: `Change time for ${a.patient_name}`,
+        label: "New appointment time",
+        type: "time",
+        value: a.pending_new_time || a.scheduled_time || "10:00",
+        submitLabel: "Apply time",
+        onSubmit: (v) => submitPendingAction(a, { new_time: v }),
+      });
     }
   };
   const sendWA = async (id: string) => { try { const d = await api.diaryWhatsAppTemplate(id); window.open(d.whatsapp_url, "_blank"); await api.diaryLogMessage(id, "whatsapp", "confirmation", d.message); show("✓ WhatsApp opened"); } catch (e: any) { show("Error: " + e.message); } };
@@ -685,11 +744,16 @@ export function AppointmentHub({ clinicId, staff, accent = "#059669", show, view
                 <button onClick={() => setReschedApt(a)} style={{ flex: 1, padding: "20px 0", background: "#f4f4f5", borderRadius: 24, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: "pointer" }}>
                   <Edit3 size={16} /> Edit
                 </button>
-                <button onClick={() => {
-                  const reason = window.prompt(`Cancel ${a.patient_name} — enter reason`, a.cancel_reason || "");
-                  if (reason === null) return;
-                  mark(a.id, "cancelled", reason.trim() || "Cancelled");
-                }} style={{ flex: 1, padding: "20px 0", background: "#fef2f2", color: "#ef4444", borderRadius: 24, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: "pointer" }}>
+                <button onClick={() => setPromptModal({
+                  title: `Cancel appointment`,
+                  label: `Reason for cancelling ${a.patient_name}`,
+                  type: "text",
+                  value: a.cancel_reason || "",
+                  placeholder: "e.g. Patient requested, clinic closed, double-booked…",
+                  submitLabel: "Cancel appointment",
+                  danger: true,
+                  onSubmit: (reason) => mark(a.id, "cancelled", reason || "Cancelled"),
+                })} style={{ flex: 1, padding: "20px 0", background: "#fef2f2", color: "#ef4444", borderRadius: 24, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: "pointer" }}>
                   <Trash2 size={16} /> Cancel
                 </button>
               </div>
@@ -982,6 +1046,7 @@ export function AppointmentHub({ clinicId, staff, accent = "#059669", show, view
 
 
       {/* Modals */}
+      {promptModal && <PromptModal config={promptModal} accent={A} onClose={() => setPromptModal(null)} />}
       {showAdd && <AddPatientModal clinicId={clinicId} accent={A} show={show} onClose={() => { setShowAdd(false); setAddPrefillDate(null); }} onAdded={refreshAll} defaultDate={addPrefillDate || undefined} />}
       {reschedApt && <RescheduleModal apt={reschedApt} accent={A} show={show} onClose={() => setReschedApt(null)} onDone={() => { setReschedApt(null); refreshAll(); }} />}
       {payPat && <PaymentModal apt={payPat} accent={A} show={show} onClose={() => setPayPat(null)} onDone={() => { setPayPat(null); refreshAll(); }} />}

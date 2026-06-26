@@ -1,5 +1,5 @@
 ﻿/**
- * SpecialistModule â€” Bundle X (Integrated)
+ * SpecialistModule — Bundle X (Integrated)
  *
  * Specialist-facing tracking dashboard for assigned work, in-progress cases,
  * closed work awaiting verification, verified work, and payments.
@@ -18,8 +18,8 @@ const GREEN = "#059669";
 const AMBER = "#F59E0B";
 const PURPLE = "#7C3AED";
 
-const fmt = (n: number) => `â‚¹${(n || 0).toLocaleString("en-IN")}`;
-const dmy = (s?: string | null) => s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "â€”";
+const fmt = (n: number) => `₹${(n || 0).toLocaleString("en-IN")}`;
+const dmy = (s?: string | null) => s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
 type Tab = "assigned" | "progress" | "closed" | "verified" | "payments";
 
@@ -39,6 +39,8 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeCase, setActiveCase] = useState<any>(null);
+  const [doneItem, setDoneItem] = useState<any>(null);
+  const [doneNotes, setDoneNotes] = useState("");
 
   const specId = staff?.staff_id;
   const clinicId = staff?.clinic_id;
@@ -115,15 +117,22 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
     }
   };
 
-  const markDone = async (item: any) => {
+  const markDone = (item: any) => {
     const appointmentId = item.appointment_id || item.id;
     if (!appointmentId) return;
-    const notes = window.prompt(`Notes for ${item.patient_name || "patient"}:`, "Work completed by specialist");
-    if (notes === null) return;
+    setDoneNotes("Work completed by specialist");
+    setDoneItem(item);
+  };
+
+  const submitMarkDone = async () => {
+    const item = doneItem;
+    const appointmentId = item?.appointment_id || item?.id;
+    if (!appointmentId) return;
+    setDoneItem(null);
     setBusyId(appointmentId);
     try {
-      await api.specCloseSession(appointmentId, { notes });
-      show("Marked done â€” awaiting doctor verification");
+      await api.specCloseSession(appointmentId, { notes: doneNotes.trim() });
+      show("Marked done — awaiting doctor verification");
       await loadWork();
       setTab("closed");
     } catch (e: any) {
@@ -155,7 +164,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
           <div style={{ fontWeight: 800, color: INK, fontSize: 15 }}>{item.patient_name}</div>
           <div style={{ fontSize: 12.5, color: MUTE, marginTop: 2 }}>
             {dmy(item.scheduled_date)}
-            {item.specialization ? ` Â· ${item.specialization}` : ""}
+            {item.specialization ? ` · ${item.specialization}` : ""}
           </div>
           {item.specialist_notes && (
             <div style={{ fontSize: 12, color: MUTE, marginTop: 4, fontStyle: "italic" }}>
@@ -245,7 +254,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
       padding: 40, textAlign: "center", color: MUTE, background: SOFT,
       borderRadius: 14, border: `1.5px dashed ${LINE}`,
     }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>ðŸ“‹</div>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
       {msg}
     </div>
   );
@@ -275,9 +284,9 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
         background: `linear-gradient(135deg,${accent},${accent}CC)`,
         borderRadius: 18, padding: "16px 22px", color: "#fff", marginBottom: 16,
       }}>
-        <div style={{ fontSize: 22, fontWeight: 800 }}>ðŸ©º My Practice</div>
+        <div style={{ fontSize: 22, fontWeight: 800 }}>🩺 My Practice</div>
         <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
-          {staff?.name}{staff?.specialization ? ` Â· ${staff.specialization}` : ""}
+          {staff?.name}{staff?.specialization ? ` · ${staff.specialization}` : ""}
         </div>
         <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
           <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "8px 14px" }}>
@@ -326,7 +335,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
       </div>
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: "center", color: MUTE }}>Loadingâ€¦</div>
+        <div style={{ padding: 40, textAlign: "center", color: MUTE }}>Loading…</div>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
 
@@ -335,13 +344,13 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
             <>
               {myWaiting.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: AMBER, marginBottom: 8, paddingLeft: 4 }}>ðŸŸ¢ ARRIVED & WAITING</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: AMBER, marginBottom: 8, paddingLeft: 4 }}>🟢 ARRIVED & WAITING</div>
                   {myWaiting.map(item => renderCard(item))}
                 </div>
               )}
               {myExpected.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: MUTE, marginBottom: 8, paddingLeft: 4 }}>ðŸ‘€ EXPECTED LATER TODAY</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: MUTE, marginBottom: 8, paddingLeft: 4 }}>👀 EXPECTED LATER TODAY</div>
                   {myExpected.map(item => renderCard(item))}
                 </div>
               )}
@@ -412,7 +421,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
               {/* Pending payments */}
               {pendingPayments.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 8 }}>â³ Pending Settlement</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 8 }}>⏳ Pending Settlement</div>
                   {pendingPayments.map((e: any) => (
                     <div key={e.id} style={{
                       background: "#fff", border: `1.5px solid #FECACA`, borderRadius: 14, padding: 14,
@@ -421,7 +430,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
                       <div style={{ flex: 1, minWidth: 180 }}>
                         <div style={{ fontWeight: 800, color: INK, fontSize: 15 }}>{e.patient_name || "Patient"}</div>
                         <div style={{ fontSize: 12.5, color: MUTE, marginTop: 2 }}>
-                          Verified {dmy(e.verified_at)} Â· {e.notes || ""}
+                          Verified {dmy(e.verified_at)} · {e.notes || ""}
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -436,7 +445,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
               {/* Settled payments */}
               {settledPayments.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 8 }}>âœ… Settled</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 8 }}>✅ Settled</div>
                   {settledPayments.map((e: any) => (
                     <div key={e.id} style={{
                       background: "#F0FDF4", border: `1.5px solid ${LINE}`, borderRadius: 14, padding: 14,
@@ -445,8 +454,8 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
                       <div style={{ flex: 1, minWidth: 180 }}>
                         <div style={{ fontWeight: 800, color: INK, fontSize: 15 }}>{e.patient_name || "Patient"}</div>
                         <div style={{ fontSize: 12.5, color: MUTE, marginTop: 2 }}>
-                          Settled {dmy(e.settled_at)} Â· {e.payment_mode || ""}
-                          {e.reference ? ` Â· Ref: ${e.reference}` : ""}
+                          Settled {dmy(e.settled_at)} · {e.payment_mode || ""}
+                          {e.reference ? ` · Ref: ${e.reference}` : ""}
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -465,6 +474,30 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
         </div>
       )}
       </>
+      )}
+
+      {doneItem && (
+        <div onClick={() => setDoneItem(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", backdropFilter: "blur(8px)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 18, padding: 26, width: 440, maxWidth: "94vw" }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: INK, marginBottom: 2 }}>Mark work done</div>
+            <div style={{ fontSize: 13.5, color: MUTE, marginBottom: 14 }}>
+              {doneItem.patient_name || "Patient"} — this will be sent to the doctor for verification.
+            </div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: MUTE, marginBottom: 6, textTransform: "uppercase", letterSpacing: .6 }}>Notes</label>
+            <textarea autoFocus value={doneNotes} onChange={e => setDoneNotes(e.target.value)}
+              placeholder="Describe the work completed…"
+              onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitMarkDone(); }}
+              style={{ width: "100%", minHeight: 96, border: `1.5px solid ${LINE}`, borderRadius: 12, padding: "12px 14px", fontSize: 14.5, fontFamily: "inherit", boxSizing: "border-box", outline: "none", resize: "vertical" }} />
+            <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+              <button onClick={() => setDoneItem(null)}
+                style={{ border: `1.5px solid ${LINE}`, background: "#fff", color: MUTE, borderRadius: 12, padding: "11px 20px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              <button onClick={submitMarkDone}
+                style={{ border: "none", background: accent, color: "#fff", borderRadius: 12, padding: "11px 20px", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Mark done</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
