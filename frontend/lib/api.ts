@@ -385,6 +385,14 @@ export async function hubAppointmentsRange(clinicId: string, from: string, to: s
 export async function hubMarkStatus(aptId: string, newStatus: string, cancelReason?: string) {
   return apiFetch(`${HUB}/mark/${aptId}`, { method: "POST", body: JSON.stringify({ new_status: newStatus, cancel_reason: cancelReason }) });
 }
+// ── Admin Case Manager (status rescue for stuck appointments) ──
+export async function hubAdminAllAppointments(clinicId: string, status?: string) {
+  const q = status ? `&status=${encodeURIComponent(status)}` : "";
+  return apiFetch(`${HUB}/admin/all-appointments?clinic_id=${clinicId}${q}`);
+}
+export async function hubAdminForceStatus(aptId: string, newStatus: string, reason?: string, clearSchedule = false) {
+  return apiFetch(`${HUB}/admin/force-status/${aptId}`, { method: "POST", body: JSON.stringify({ new_status: newStatus, reason, clear_schedule: clearSchedule }) });
+}
 export async function hubQueue(clinicId: string) {
   return apiFetch(`${HUB}/queue?clinic_id=${clinicId}`);
 }

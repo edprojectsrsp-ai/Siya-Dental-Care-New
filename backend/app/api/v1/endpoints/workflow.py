@@ -197,6 +197,16 @@ class TimeEditIn(BaseModel):
 class CallStatusIn(BaseModel):
     call_status: str                      # pending_call|confirmed|no_answer|call_back_later|cancelled_by_patient|rescheduled
     notes: Optional[str] = None
+class AdminForceStatusIn(BaseModel):
+    new_status: str                       # any status — bypasses the normal transition rules
+    reason: Optional[str] = None
+    clear_schedule: bool = False          # also wipe date/time so it returns to the unscheduled pool
+
+# Every status an appointment can hold (the universe the admin override may set).
+ALL_STATUSES = {
+    "scheduled", "pending", "confirmed", "arrived", "in_treatment",
+    "payment_pending", "completed", "cancelled", "rescheduled",
+}
 
 # Spec workflow: Scheduled → Arrived(=Queue) → In Treatment → Payment Pending → Completed
 VALID_TRANSITIONS = {
@@ -611,6 +621,98 @@ async def mark_status(apt_id: UUID, body: WorkflowMarkIn, db: AsyncSession = Dep
         except Exception:
             pass
     return {"status": new}
+
+# ───────────────── ADMIN CASE MANAGER (status rescue) ──────────────────
+# Patients can get "stuck" in a status with no valid forward transition
+# (e.g. payment_pending, completed, cancelled) so they vanish from the queue
+# and can't be rescheduled. These admin-only endpoints list every appointment
+# and let an admin/doctor force any status, bypassing VALID_TRANSITIONS.
+
+@router.get("/admin/all-appointments")
+async def admin_all_appointments(
+    clinic_id: UUID,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    staff=Depends(get_current_staff),
+):
+    if staff.get("role") not in ("admin", "doctor"):
+        raise HTTPException(403, "Admin or doctor access required")
+    where = "a.clinic_id = :c"
+    params: dict = {"c": str(clinic_id)}
+    if status:
+        where += " AND COALESCE(a.workflow_status, a.status) = :st"
+        params["st"] = status
+    rows = (await db.execute(sql_text(f"""
+        SELECT a.id, a.patient_id,
+               COALESCE(a.workflow_status, a.status) AS workflow_status,
+               a.scheduled_date, a.scheduled_time,
+               a.requested_date, a.requested_time,
+               a.confirmed_date, a.confirmed_time,
+               a.reason, a.appointment_type, a.cancel_reason,
+               a.updated_at, a.created_at,
+               p.name AS patient_name, p.phone
+          FROM appointments a
+          JOIN patients p ON p.id = a.patient_id
+         WHERE {where}
+         ORDER BY a.updated_at DESC NULLS LAST, a.created_at DESC NULLS LAST
+    """), params)).mappings().all()
+    return {"appointments": [dict(r) for r in rows]}
+
+
+@router.post("/admin/force-status/{apt_id}")
+async def admin_force_status(
+    apt_id: UUID,
+    body: AdminForceStatusIn,
+    db: AsyncSession = Depends(get_db),
+    staff=Depends(get_current_staff),
+):
+    if staff.get("role") not in ("admin", "doctor"):
+        raise HTTPException(403, "Admin or doctor access required")
+    ns = (body.new_status or "").strip()
+    if ns not in ALL_STATUSES:
+        raise HTTPException(400, f"Invalid status '{ns}'. Allowed: {sorted(ALL_STATUSES)}")
+    row = (await db.execute(sql_text(
+        "SELECT COALESCE(workflow_status, status) AS ws FROM appointments WHERE id = :id"
+    ), {"id": str(apt_id)})).mappings().one_or_none()
+    if not row:
+        raise HTTPException(404, "Appointment not found")
+    old = row["ws"]
+
+    sets = ["workflow_status = :ns", "status = :ns", "updated_at = NOW()"]
+    params: dict = {"ns": ns, "id": str(apt_id)}
+    if ns == "arrived":
+        sets.append("arrived_at = NOW()")
+    elif ns == "in_treatment":
+        sets.append("started_at = NOW()")
+    elif ns == "completed":
+        sets.append("completed_at = NOW()")
+    if ns == "cancelled":
+        sets.append("cancel_reason = :cr")
+        params["cr"] = (body.reason or "Cancelled by admin").strip()
+    if body.clear_schedule:
+        sets += ["scheduled_date = NULL", "scheduled_time = NULL",
+                 "confirmed_date = NULL", "confirmed_time = NULL"]
+    await db.execute(sql_text(f"UPDATE appointments SET {', '.join(sets)} WHERE id = :id"), params)
+
+    # Best-effort audit log — never let it block the override.
+    try:
+        async with db.begin_nested():
+            await db.execute(sql_text("""
+                INSERT INTO appointment_history
+                    (appointment_id, action_type, old_value, new_value, changed_by_staff_id, notes)
+                VALUES (CAST(:a AS UUID), 'admin_override',
+                        jsonb_build_object('status', :old),
+                        jsonb_build_object('status', :ns, 'clear_schedule', :cs),
+                        CAST(:by AS UUID), :notes)
+            """), {
+                "a": str(apt_id), "old": old or "", "ns": ns,
+                "cs": str(body.clear_schedule).lower(),
+                "by": str(staff["staff_id"]),
+                "notes": (body.reason or "").strip(),
+            })
+    except Exception:
+        pass
+    return {"status": ns, "previous": old, "cleared_schedule": body.clear_schedule}
 
 # ─────────────────────────── DOCTOR QUEUE ──────────────────────
 @router.get("/queue")

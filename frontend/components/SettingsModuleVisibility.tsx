@@ -20,7 +20,7 @@ const MODULE_LABELS: Record<string, string> = {
   queue: "🩺 Queue", kanban: "🗂 Kanban", billing: "💰 Billing",
   medicines: "💊 Medicines", procedures: "🦷 Procedures", lab: "🧪 Lab",
   counters: "📊 Counters", specialists: "👨‍⚕️ Specialists", staff: "🧑‍💼 User Control",
-  website: "🌐 Website", consult: "📞 Phone Consult",
+  casemanager: "🛟 Case Manager", website: "🌐 Website", consult: "📞 Phone Consult",
   messages: "💬 Messages", bulkwa: "📲 Bulk WhatsApp", settings: "⚙️ Settings",
 };
 

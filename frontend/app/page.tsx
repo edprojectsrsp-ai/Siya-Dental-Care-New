@@ -21,6 +21,7 @@ import DashboardHome from "@/components/DashboardHome";
 import SpecialistModule from "@/components/SpecialistModule";
 import WorkshopTrackers from "@/components/WorkshopTrackers";
 import RevenueDashboard from "@/components/RevenueDashboard";
+import CaseManager from "@/components/CaseManager";
 import { CLINIC_THEMES, APPOINTMENT_STATUS, APPOINTMENT_SOURCE, SIYA } from "@/lib/theme";
 import { Button, ErrorBanner, FieldLabel, Spinner } from "@/lib/ui";
 
@@ -445,6 +446,7 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
 
     {id:"specialists",icon:"👨‍⚕️",label:sanitize("Specialists")},
     {id:"staff",icon:"🧑‍💼",label:sanitize("User Control")},
+    {id:"casemanager",icon:"🛟",label:sanitize("Case Manager")},
     {id:"website",icon:"🌐",label:sanitize("Website")},
     {id:"consult",icon:"📞",label:sanitize("Phone Consult")},
     {id:"messages",icon:"💬",label:sanitize("Messages")},
@@ -455,12 +457,14 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
   NAV.splice(11, 0, {id:"mypractice",icon:"🩺",label:sanitize("My Practice")});
   const sidebarBg=theme?.sidebar||"#0F172A";
   const accentColor=theme?.accent||"#6366F1";
-  // Modules that default to doctor-only when the visibility matrix hasn't set them.
+  // Modules that default to restricted roles when the visibility matrix hasn't set them.
   // (The matrix in Settings still overrides — admin can grant other roles explicitly.)
   const DOCTOR_DEFAULT_ONLY = new Set(["website"]);
+  const ADMIN_DEFAULT_ONLY = new Set(["casemanager"]);
   const visibleNav = NAV.filter(n => {
     const vis = moduleVisibility?.[staff?.role]?.[n.id];
     if (vis === undefined && DOCTOR_DEFAULT_ONLY.has(n.id)) return staff?.role === "doctor";
+    if (vis === undefined && ADMIN_DEFAULT_ONLY.has(n.id)) return ["doctor", "admin"].includes(staff?.role);
     return vis !== false;
   });
   // Specialist uses same interface — filtered queue + restricted workspace + "My Practice" sidebar module
@@ -641,6 +645,9 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
 
         {/* STAFF (User Control) */}
         {!loading&&sec==="staff"&&<StaffManagement accent={accentColor} show={show} currentStaff={staff} clinics={allClinics} />}
+
+        {/* CASE MANAGER (admin status rescue for stuck appointments) */}
+        {!loading&&sec==="casemanager"&&<CaseManager staff={staff} accent={accentColor} show={show} />}
 
         {/* WEBSITE (Gallery merged in as a tab) */}
         {!loading&&sec==="website"&&<WebsiteManager accent={accentColor} show={show} clinics={allClinics} />}
