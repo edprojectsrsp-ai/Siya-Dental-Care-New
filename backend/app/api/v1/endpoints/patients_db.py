@@ -401,6 +401,50 @@ async def patient_timeline(
             "notes": None,
         })
 
+    # Lab orders
+    labs = (await db.execute(sql_text("""
+        SELECT lo.work_type, lo.status, lo.sent_date, lo.expected_date, lo.received_date,
+               lo.created_at, v.name AS vendor_name
+        FROM lab_orders lo
+        LEFT JOIN lab_vendors v ON v.id = lo.vendor_id
+        WHERE lo.patient_id = :p
+        ORDER BY lo.created_at DESC
+    """), {"p": pid})).mappings().all()
+    for lo in labs:
+        st = lo.get("status") or "pending"
+        received = st in ("received", "fitted", "completed")
+        events.append({
+            "kind": "lab",
+            "icon": "🧪",
+            "at": _iso(lo.get("received_date") if received else (lo.get("sent_date") or lo.get("created_at"))),
+            "title": f"Lab — {lo.get('work_type') or 'Order'}",
+            "subtitle": f"{lo.get('vendor_name') or 'Lab'} · {st.replace('_', ' ')}",
+            "notes": None,
+        })
+
+    # WhatsApp / messages to the patient
+    try:
+        msgs = (await db.execute(sql_text("""
+            SELECT body, transport, direction, status, trigger, template_key,
+                   COALESCE(sent_at, created_at) AS at
+            FROM message_log
+            WHERE recipient_kind = 'patient' AND recipient_id = :p
+            ORDER BY created_at DESC
+            LIMIT 100
+        """), {"p": pid})).mappings().all()
+    except Exception:
+        msgs = []
+    for m in msgs:
+        body = (m.get("body") or "").strip()
+        events.append({
+            "kind": "message",
+            "icon": "💬",
+            "at": _iso(m.get("at")),
+            "title": f"Message — {m.get('template_key') or m.get('trigger') or m.get('transport') or 'WhatsApp'}",
+            "subtitle": f"{(m.get('direction') or 'out').title()} · {m.get('status') or 'sent'}",
+            "notes": body[:160] if body else None,
+        })
+
     # Sort all events descending by date
     events.sort(key=lambda e: e.get("at") or "", reverse=True)
     return {"events": events[:limit], "total": len(events)}

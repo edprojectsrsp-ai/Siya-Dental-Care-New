@@ -781,16 +781,40 @@ function MediaTab({ patientId, clinicId, accent, show }: {
 function TimelineTab({ patientId, accent }: { patientId: string; accent: string }) {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [kind, setKind] = useState<string>("all");
   useEffect(() => {
     setLoading(true);
     api.pdbTimeline(patientId, 150).then(d => setEvents(d.events || [])).finally(() => setLoading(false));
   }, [patientId]);
   if (loading) return <Loader label="Loading timeline…" />;
   if (events.length === 0) return <Empty text="No timeline events yet." />;
+
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "appointment", label: "📅 Appointments" },
+    { id: "visit", label: "🦷 Treatment" },
+    { id: "prescription", label: "💊 Rx" },
+    { id: "lab", label: "🧪 Lab" },
+    { id: "payment", label: "💰 Payments" },
+    { id: "message", label: "💬 Messages" },
+  ];
+  const counts: Record<string, number> = {};
+  events.forEach(e => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+  const shown = kind === "all" ? events : events.filter(e => e.kind === kind);
+
   return (
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, marginBottom: 16 }}>
+        {FILTERS.filter(f => f.id === "all" || counts[f.id]).map(f => (
+          <button key={f.id} onClick={() => setKind(f.id)}
+            style={{ border: kind === f.id ? `2px solid ${accent}` : `1.5px solid ${LINE}`, background: kind === f.id ? accent + "12" : "#fff", color: kind === f.id ? accent : "#475569", borderRadius: 999, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {f.label}{f.id !== "all" && counts[f.id] ? ` (${counts[f.id]})` : ""}
+          </button>
+        ))}
+      </div>
     <div style={{ position: "relative" as const, paddingLeft: 26 }}>
       <div style={{ position: "absolute" as const, left: 10, top: 6, bottom: 6, width: 2, background: LINE }} />
-      {events.map((e, i) => (
+      {shown.map((e, i) => (
         <div key={i} style={{ position: "relative" as const, marginBottom: 16 }}>
           <div style={{
             position: "absolute" as const, left: -22, top: 0,
@@ -804,6 +828,7 @@ function TimelineTab({ patientId, accent }: { patientId: string; accent: string 
           {e.notes && <div style={{ fontSize: 12, color: INK, marginTop: 3, whiteSpace: "pre-wrap" as const }}>{e.notes}</div>}
         </div>
       ))}
+    </div>
     </div>
   );
 }
