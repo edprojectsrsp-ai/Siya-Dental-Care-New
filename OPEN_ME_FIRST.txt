@@ -1,54 +1,62 @@
-SIYA DENTAL CARE — PC HANDOVER PACKAGE
-Generated: 26 June 2026
+SIYA DENTAL CARE — PC HANDOVER / RESUME GUIDE
+Updated: 27 June 2026
 
-CONTENTS
-  frontend/     Next.js source (node_modules and .next excluded — regenerate locally)
-  backend/      FastAPI source, migrations, scripts, .env.example
-  database/     Bundle migration SQL (019-021 combined)
-  docs/         Project documentation
-  Siya_Dental_Database_Plain_20260622_234404.sql   Full database dump (recommended restore)
+WHAT'S IN HERE
+  frontend/   Next.js source (run: npm ci && npm run dev)
+  backend/    FastAPI source + db_init/full_database.sql (the full 87-table database)
+  database/   Older bundle migration SQL (history / reference only)
+  docs/       Project documentation
 
-QUICK START (Windows / Mac / Linux)
+REQUIREMENTS
+  - Docker Desktop  (runs PostgreSQL — no separate DB install needed)
+  - Node.js 18+     (frontend)
+  - Python 3.12     (backend)
 
-1. DATABASE
-   createdb -U postgres dentassist
-   psql -U postgres -d dentassist -f Siya_Dental_Database_Plain_20260622_234404.sql
+────────────────────────────────────────────────────────────
+QUICK START
+────────────────────────────────────────────────────────────
 
-   Note: backend/.env uses database name "dentassist" (not siya_dental).
-
-2. BACKEND
+1) DATABASE  — Docker auto-loads the full 87-table database on first run
    cd backend
-   copy .env.example .env          (Windows)  OR  cp .env.example .env  (Mac/Linux)
-   Edit .env — set SECRET_KEY to a random 64-char string
+   copy .env.example .env        (Windows)   OR   cp .env.example .env   (Mac/Linux)
+   - edit .env: set SECRET_KEY to a random string
+   docker compose up -d db
+   (first run loads db_init/full_database.sql automatically — wait ~15s)
+
+2) BACKEND
+   cd backend
    python -m venv .venv
-   .venv\Scripts\activate          (Windows)  OR  source .venv/bin/activate
+   .venv\Scripts\activate        (Windows)   OR   source .venv/bin/activate
    pip install -r requirements.txt
    uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-3. FRONTEND (new terminal)
+3) FRONTEND  (new terminal)
    cd frontend
    npm ci
    npm run dev
 
-4. OPEN
-   http://127.0.0.1:3000/          Doctor dashboard
-   http://127.0.0.1:8000/docs      API documentation
-   http://127.0.0.1:3000/public    Public marketing site
-   http://127.0.0.1:3000/public/consult   Phone consultation booking
-   http://127.0.0.1:3000/public/smile     AR smile preview
+4) SET A LOGIN PIN
+   cd backend
+   python scripts/setup.py set-pin +919876500001 1234
 
-LOGIN
-  Staff dropdown on login screen — select doctor, enter PIN (set via backend scripts/setup.py)
+5) OPEN
+   http://127.0.0.1:3000          Staff app  (login: pick your name + PIN)
+   http://127.0.0.1:3000/public   Public marketing site
+   http://127.0.0.1:8000/docs     API documentation
 
-API WIRING
-  Frontend proxies /api/* → http://127.0.0.1:8000/api/* (next.config.js)
-  All components should use /api/... paths, never hardcode localhost:8000
+────────────────────────────────────────────────────────────
+NOTES
+────────────────────────────────────────────────────────────
+  - The frontend proxies /api/* -> http://127.0.0.1:8000 (next.config.js).
+    Components must use /api/... paths — never hardcode the backend URL.
 
-CANONICAL PUBLIC URLS
-  /public              Legacy marketing site (linked from admin)
-  /public/website-2    Refactored marketing site component
-  /site/[clinicId]     Per-clinic CMS site
+  - The CANONICAL database is  backend/db_init/full_database.sql
+    (clean, 87 tables, loads automatically via Docker on a fresh DB volume).
+    The root Siya_Dental_Database_Plain_*.sql is an older raw backup —
+    do NOT restore from it (older data, since superseded).
 
-KEEP PRIVATE
-  backend/.env (secrets, DB password)
-  Do not commit .env to version control
+  - KEEP PRIVATE:  backend/.env  (secrets + DB password). Never commit it.
+
+FULL-DOCKER OPTION (Postgres + API in containers together)
+   cd backend
+   docker compose up -d          (frontend still runs via npm run dev)
