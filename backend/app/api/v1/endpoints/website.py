@@ -139,6 +139,9 @@ class ThemeIn(BaseModel):
     facebook_url: Optional[str] = None
     youtube_url: Optional[str] = None
     twitter_url: Optional[str] = None
+    google_reviews_url: Optional[str] = None
+    google_rating: Optional[str] = None
+    google_review_count: Optional[str] = None
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -7511,3 +7511,10 @@ ALTER TABLE ONLY public.walk_in_patients
 --
 
 
+
+-- Google reviews badge fields (added post-dump; idempotent for fresh installs)
+ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_reviews_url text;
+ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_rating text;
+ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_review_count text;
+UPDATE site_theme SET google_rating = COALESCE(google_rating, '4.9'),
+                      google_review_count = COALESCE(google_review_count, '120+');

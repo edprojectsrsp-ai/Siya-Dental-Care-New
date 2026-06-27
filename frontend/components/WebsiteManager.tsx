@@ -168,6 +168,13 @@ function ThemeEditor({ A, show }: any) {
         <Field label="Twitter URL" value={theme.twitter_url || ""} onChange={v => set("twitter_url", v)} />
       </div>
 
+      <h3 style={h3}>⭐ Google Reviews</h3>
+      <Field label="Google profile / reviews URL (link the badge to your Google Business listing)" value={theme.google_reviews_url || ""} onChange={v => set("google_reviews_url", v)} placeholder="https://g.page/r/... or your Google Maps listing URL" />
+      <div style={grid2}>
+        <Field label="Rating (e.g. 4.9)" value={theme.google_rating || ""} onChange={v => set("google_rating", v)} placeholder="4.9" />
+        <Field label="Review count (e.g. 128 or 120+)" value={theme.google_review_count || ""} onChange={v => set("google_review_count", v)} placeholder="120+" />
+      </div>
+
       <h3 style={h3}>📊 Analytics</h3>
       <Field label="Google Analytics ID (G-XXXX or UA-XXXX)" value={theme.google_analytics_id || ""} onChange={v => set("google_analytics_id", v)} />
 
