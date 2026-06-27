@@ -10,8 +10,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Zoom left enabled for accessibility (older patients/staff).
   themeColor: "#0F172A",
 };
 

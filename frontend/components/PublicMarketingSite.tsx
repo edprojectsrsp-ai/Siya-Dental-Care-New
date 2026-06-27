@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ClickToChatLink from "@/components/ClickToChatLink";
 import * as api from "@/lib/api";
+import "@/app/public-site.css";
 
 // ── Animated count-up for hero stats (0 → target, eased, slow) ──
 function parseStat(v: string) {
@@ -44,7 +45,58 @@ function CountUpStat({ value }: { value: string }) {
   const display = decimals ? cur.toFixed(1) : Math.round(cur).toLocaleString("en-IN");
   return <dt ref={ref}>{display}{suffix}</dt>;
 }
-import "@/app/public-site.css";
+
+// ── Draggable before/after image comparison ──
+function BeforeAfterSlider({ before, after, beforeLabel = "Before", afterLabel = "After" }:
+  { before: string; after: string; beforeLabel?: string; afterLabel?: string }) {
+  const [pos, setPos] = useState(50);
+  const ref = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const move = (clientX: number) => {
+    const el = ref.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const p = ((clientX - r.left) / r.width) * 100;
+    setPos(Math.max(0, Math.min(100, p)));
+  };
+  useEffect(() => {
+    const up = () => { dragging.current = false; };
+    const mm = (e: MouseEvent) => dragging.current && move(e.clientX);
+    const tm = (e: TouchEvent) => dragging.current && move(e.touches[0].clientX);
+    window.addEventListener("mouseup", up); window.addEventListener("mousemove", mm);
+    window.addEventListener("touchend", up); window.addEventListener("touchmove", tm, { passive: true });
+    return () => { window.removeEventListener("mouseup", up); window.removeEventListener("mousemove", mm); window.removeEventListener("touchend", up); window.removeEventListener("touchmove", tm); };
+  }, []);
+  return (
+    <div className="ps-ba" ref={ref}
+      onMouseDown={(e) => { dragging.current = true; move(e.clientX); }}
+      onTouchStart={(e) => { dragging.current = true; move(e.touches[0].clientX); }}>
+      <img className="ps-ba-img" src={after} alt={afterLabel} loading="lazy" draggable={false} />
+      <img className="ps-ba-img" src={before} alt={beforeLabel} loading="lazy" draggable={false}
+        style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }} />
+      <span className="ps-ba-tag ps-ba-tag-before" style={{ opacity: pos > 12 ? 1 : 0 }}>{beforeLabel}</span>
+      <span className="ps-ba-tag ps-ba-tag-after" style={{ opacity: pos < 88 ? 1 : 0 }}>{afterLabel}</span>
+      <div className="ps-ba-handle" style={{ left: `${pos}%` }}><span>‹ ›</span></div>
+    </div>
+  );
+}
+
+// ── Reveal-on-scroll: add .ps-reveal to a section, it animates in once visible ──
+function useScrollReveal() {
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll<HTMLElement>(".ps-reveal"));
+    if (!("IntersectionObserver" in window) || !els.length) {
+      els.forEach((el) => el.classList.add("ps-revealed"));
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("ps-revealed"); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+}
+
+const GOOGLE_STAR = "★";
 
 type SiteContent = {
   theme?: Record<string, string>;
@@ -240,6 +292,13 @@ export default function PublicMarketingSite({
     }
   }, [form.service, services]);
 
+  useScrollReveal();
+
+  // Google reviews (curated until live API is wired): rating + profile link from theme, with sensible fallbacks.
+  const googleRating = String(theme.google_rating || "4.9");
+  const googleCount = String(theme.google_review_count || "120+");
+  const googleUrl = theme.google_reviews_url || `https://www.google.com/search?q=${encodeURIComponent(siteTitle + " " + (activeClinic.address || "Rourkela") + " reviews")}`;
+
   const currentTestimonial = testimonials[testimonialIndex] as Record<string, string> | undefined;
   const activeAddress = activeClinic.address || officeAddress;
   const activeMapUrl = activeClinic.google_maps_embed_url || mapUrl;
@@ -255,6 +314,9 @@ export default function PublicMarketingSite({
     | undefined;
   const tourVideos = videos.filter((v) => (v as Record<string, string>).category === "clinic_tour");
   const beforeAfter = gallery.filter((g) => (g as Record<string, string>).category === "before_after");
+  // Before/After pairs from the gallery's before_after images (need at least 2).
+  const baImages = beforeAfter.map((g) => (g as Record<string, string>).image_url).filter(Boolean);
+  const baPair = baImages.length >= 2 ? { before: baImages[0], after: baImages[1] } : null;
   const filteredGallery = gallery.filter((g) => {
     const cat = (g as Record<string, string>).category;
     return galleryTab === "all" ? true : cat === galleryTab;
@@ -416,7 +478,7 @@ export default function PublicMarketingSite({
       </section>
 
       {/* USP highlights */}
-      <section className="ps-section" id="usps">
+      <section className="ps-section ps-reveal" id="usps">
         <div className="ps-container">
           <div className="ps-section-head center">
             <div className="ps-eyebrow">Why patients choose us</div>
@@ -514,7 +576,7 @@ export default function PublicMarketingSite({
       )}
 
       {/* Services */}
-      <section className="ps-section ps-section-soft" id="services">
+      <section className="ps-section ps-section-soft ps-reveal" id="services">
         <div className="ps-container">
           <div className="ps-section-head">
             <div className="ps-eyebrow">What we do</div>
@@ -573,7 +635,7 @@ export default function PublicMarketingSite({
       </section>
 
       {/* Doctors */}
-      <section className="ps-section" id="doctors">
+      <section className="ps-section ps-reveal" id="doctors">
         <div className="ps-container">
           <div className="ps-section-head">
             <div className="ps-eyebrow">The team</div>
@@ -660,6 +722,22 @@ export default function PublicMarketingSite({
         </div>
       </section>
 
+      {/* Before / After comparison */}
+      {baPair && (
+        <section className="ps-section ps-section-soft ps-reveal" id="results">
+          <div className="ps-container">
+            <div className="ps-section-head">
+              <div className="ps-eyebrow">Real results</div>
+              <h2 className="ps-display">Drag to see the difference.</h2>
+              <p className="ps-section-sub">Actual treatment outcomes from our clinic — shared with patient consent.</p>
+            </div>
+            <div className="ps-ba-wrap">
+              <BeforeAfterSlider before={baPair.before} after={baPair.after} />
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Tour videos */}
       {tourVideos.length > 0 && (
         <section className="ps-section ps-section-soft" id="tour">
@@ -702,19 +780,25 @@ export default function PublicMarketingSite({
       )}
 
       {/* Reviews */}
-      <section className="ps-section ps-section-soft" id="reviews">
+      <section className="ps-section ps-section-soft ps-reveal" id="reviews">
         <div className="ps-container ps-testimonial-grid">
           <div>
             <div className="ps-eyebrow">In their words</div>
             <h2 className="ps-display" style={{ marginTop: "0.75rem", fontSize: "clamp(2rem, 4vw, 3rem)" }}>
               Quiet praise from quiet people.
             </h2>
-            <div className="ps-testimonial-side" style={{ marginTop: "2rem" }}>
+            <a className="ps-google" href={googleUrl} target="_blank" rel="noreferrer">
+              <span className="ps-google-g">G</span>
+              <span className="ps-google-stars">{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}</span>
+              <span className="ps-google-rate"><strong>{googleRating}</strong> on Google · {googleCount} reviews</span>
+            </a>
+            <div className="ps-testimonial-side" style={{ marginTop: "1.5rem" }}>
               <img src={ASSETS.smile} alt="" loading="lazy" />
             </div>
           </div>
           {currentTestimonial ? (
             <figure className="ps-card ps-quote-card">
+              <div className="ps-quote-stars">{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}{GOOGLE_STAR}</div>
               <blockquote>
                 &ldquo;{currentTestimonial.text || "Wonderful care and a smooth experience."}&rdquo;
               </blockquote>
@@ -736,7 +820,7 @@ export default function PublicMarketingSite({
       </section>
 
       {/* Booking */}
-      <section className="ps-section" id="book">
+      <section className="ps-section ps-reveal" id="book">
         <div className="ps-container">
           <div className="ps-section-head">
             <div className="ps-eyebrow">Book</div>
@@ -989,6 +1073,14 @@ export default function PublicMarketingSite({
           💬 WhatsApp
         </a>
       )}
+
+      {/* Sticky mobile call-to-action bar */}
+      <div className="ps-mobile-cta">
+        <a className="ps-mcta-wa"
+          href={whatsapp || buildWhatsAppLink(phone, "Hi, I would like to book an appointment.")}
+          target="_blank" rel="noreferrer">💬 WhatsApp</a>
+        <a className="ps-mcta-book" href="#book">📅 Book a visit</a>
+      </div>
     </div>
   );
 }

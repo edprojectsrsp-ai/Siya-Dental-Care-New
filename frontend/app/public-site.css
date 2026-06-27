@@ -832,3 +832,89 @@
   border: 1px solid var(--ps-border);
   box-shadow: var(--ps-shadow-lift);
 }
+/* ════════════════════════════════════════════════════════
+   Public-site enhancements: reveal, before/after, Google
+   reviews, sticky mobile CTA
+   ════════════════════════════════════════════════════════ */
+
+/* Scroll-reveal — sections fade + slide in once visible */
+.ps-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity .7s cubic-bezier(.22,.61,.36,1), transform .7s cubic-bezier(.22,.61,.36,1);
+  will-change: opacity, transform;
+}
+.ps-reveal.ps-revealed { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ps-reveal { opacity: 1 !important; transform: none !important; transition: none; }
+}
+
+/* Google reviews badge */
+.ps-google {
+  display: inline-flex; align-items: center; gap: .6rem;
+  margin-top: 1.25rem; padding: .65rem 1rem;
+  background: #fff; border: 1px solid rgba(15,23,42,.1); border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(15,23,42,.06); text-decoration: none;
+  font-size: .92rem; color: #1f2937; transition: transform .15s, box-shadow .15s;
+}
+.ps-google:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15,23,42,.12); }
+.ps-google-g {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: conic-gradient(from -45deg, #4285F4 0 25%, #34A853 0 50%, #FBBC05 0 75%, #EA4335 0);
+  color: #fff; font-weight: 900; font-size: .85rem;
+  -webkit-background-clip: border-box;
+}
+.ps-google-stars { color: #FBBC05; letter-spacing: 1px; font-size: .95rem; }
+.ps-google-rate { color: #475569; }
+.ps-google-rate strong { color: #0f172a; }
+.ps-quote-stars { color: #FBBC05; font-size: 1.05rem; letter-spacing: 2px; margin-bottom: .6rem; }
+
+/* Before / After comparison slider */
+.ps-ba-wrap { max-width: 860px; margin: 0 auto; }
+.ps-ba {
+  position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
+  border-radius: 20px; box-shadow: 0 12px 40px rgba(15,23,42,.18);
+  cursor: ew-resize; user-select: none; background: #0f172a;
+}
+.ps-ba-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.ps-ba-clip { position: absolute; inset: 0; overflow: hidden; }
+.ps-ba-clip .ps-ba-img { max-width: none; }
+.ps-ba-handle {
+  position: absolute; top: 0; bottom: 0; width: 3px; background: #fff;
+  transform: translateX(-50%); box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+}
+.ps-ba-handle span {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 42px; height: 42px; border-radius: 50%; background: #fff; color: #0f172a;
+  display: flex; align-items: center; justify-content: center; font-weight: 900;
+  letter-spacing: -1px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.ps-ba-tag {
+  position: absolute; bottom: 14px; padding: .35rem .8rem; border-radius: 999px;
+  font-size: .78rem; font-weight: 700; color: #fff; background: rgba(15,23,42,.65);
+  backdrop-filter: blur(6px);
+}
+.ps-ba-tag-before { left: 14px; }
+.ps-ba-tag-after { right: 14px; }
+
+/* Sticky mobile call-to-action bar */
+.ps-mobile-cta { display: none; }
+@media (max-width: 768px) {
+  .ps-mobile-cta {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    display: flex; gap: .5rem; padding: .55rem .75rem calc(.55rem + env(safe-area-inset-bottom, 0px));
+    background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(15,23,42,.1); box-shadow: 0 -6px 20px rgba(15,23,42,.1);
+  }
+  .ps-mcta-wa, .ps-mcta-book {
+    flex: 1; text-align: center; text-decoration: none; padding: .85rem 0;
+    border-radius: 14px; font-weight: 800; font-size: .95rem;
+  }
+  .ps-mcta-wa { background: #25D366; color: #fff; }
+  .ps-mcta-book { background: #0f172a; color: #fff; }
+  /* desktop WhatsApp FAB would overlap the bar — hide it on mobile */
+  .ps-fab-wa { display: none !important; }
+  /* keep content clear of the fixed bar */
+  .ps-footer { padding-bottom: 5rem; }
+}
