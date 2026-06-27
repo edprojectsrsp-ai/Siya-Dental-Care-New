@@ -385,6 +385,20 @@ export async function hubAppointmentsRange(clinicId: string, from: string, to: s
 export async function hubMarkStatus(aptId: string, newStatus: string, cancelReason?: string) {
   return apiFetch(`${HUB}/mark/${aptId}`, { method: "POST", body: JSON.stringify({ new_status: newStatus, cancel_reason: cancelReason }) });
 }
+// ── Notifications (clinic activity feed / bell) ──
+export async function notifList(clinicId: string, onlyUnread = false, limit = 50) {
+  return apiFetch(`/api/notifications/me?clinic_id=${clinicId}&only_unread=${onlyUnread}&limit=${limit}`);
+}
+export async function notifUnreadCount(clinicId: string) {
+  return apiFetch(`/api/notifications/unread-count?clinic_id=${clinicId}`);
+}
+export async function notifMarkRead(id: string) {
+  return apiFetch(`/api/notifications/${id}/mark-read`, { method: "POST" });
+}
+export async function notifMarkAllRead(clinicId: string) {
+  return apiFetch(`/api/notifications/mark-all-read?clinic_id=${clinicId}`, { method: "POST" });
+}
+
 // ── Admin Case Manager (status rescue for stuck appointments) ──
 export async function hubAdminAllAppointments(clinicId: string, status?: string) {
   const q = status ? `&status=${encodeURIComponent(status)}` : "";

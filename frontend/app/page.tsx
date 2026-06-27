@@ -22,6 +22,7 @@ import SpecialistModule from "@/components/SpecialistModule";
 import WorkshopTrackers from "@/components/WorkshopTrackers";
 import RevenueDashboard from "@/components/RevenueDashboard";
 import CaseManager from "@/components/CaseManager";
+import NotificationBell from "@/components/NotificationBell";
 import { CLINIC_THEMES, APPOINTMENT_STATUS, APPOINTMENT_SOURCE, SIYA } from "@/lib/theme";
 import { Button, ErrorBanner, FieldLabel, Spinner } from "@/lib/ui";
 
@@ -353,6 +354,7 @@ function MainApp({staff:initialStaff,onLogout}:{staff:any,onLogout:()=>void}){
             </div>
           )}
           <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <NotificationBell clinicId={staff?.clinic_id} accent={theme?.accent} onNavigate={(s)=>window.dispatchEvent(new CustomEvent("siya:nav",{detail:s}))}/>
             <ModeToggle activeMode={manualMode} onChange={setMode}/>
             <button onClick={onLogout} style={{border:"1px solid #334155",borderRadius:10,padding:"6px 14px",background:"transparent",color:"#94A3B8",cursor:"pointer",fontSize:12,fontWeight:600}}>Logout</button>
           </div>
@@ -366,6 +368,7 @@ function MainApp({staff:initialStaff,onLogout}:{staff:any,onLogout:()=>void}){
             <div><div style={{fontWeight:900,fontSize:14}}>Siya Dental</div><div style={{fontSize:9,opacity:.5}}>{staff?.name}</div></div>
           </div>
           <div style={{display:"flex",gap:8}}>
+            <NotificationBell clinicId={staff?.clinic_id} accent={theme?.accent} onNavigate={(s)=>window.dispatchEvent(new CustomEvent("siya:nav",{detail:s}))}/>
             <ModeToggle activeMode={manualMode} onChange={setMode} compact/>
             <button onClick={onLogout} style={{border:"1px solid #334155",borderRadius:8,padding:"4px 10px",background:"transparent",color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
           </div>
@@ -421,6 +424,13 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
   useEffect(() => {
     if (sec === "workshop") { setFinanceTab("workshop"); setSec("billing"); }
   }, [sec]);
+
+  // Notification bell (rendered in the top header) navigates via a window event.
+  useEffect(() => {
+    const handler = (e: any) => { if (e?.detail) setSec(e.detail); };
+    window.addEventListener("siya:nav", handler);
+    return () => window.removeEventListener("siya:nav", handler);
+  }, []);
 
   const drillToWorkshop = (target: "lab_pay" | "spec_pay") => {
     setWorkshopSubTab(target);
