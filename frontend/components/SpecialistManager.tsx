@@ -24,14 +24,14 @@ function dmy(d?: string) { if (!d) return "—"; try { return new Date(d).toLoca
 // ════════════════════════════════════════════════════════════════════
 // MAIN
 // ════════════════════════════════════════════════════════════════════
-export function SpecialistManager({ accent, show, currentStaffRole }: { accent: string; show: (m: string) => void; currentStaffRole?: string }) {
+export function SpecialistManager({ accent, show, currentStaffRole, clinicId }: { accent: string; show: (m: string) => void; currentStaffRole?: string; clinicId?: string }) {
   const A = accent;
   const isSpecialist = currentStaffRole === "specialist";
-  const [tab, setTab] = useState<"queue" | "earnings" | "directory">(isSpecialist ? "queue" : "earnings");
+  const [tab, setTab] = useState<"queue" | "earnings" | "directory" | "scorecards">(isSpecialist ? "queue" : "earnings");
 
   const tabs = isSpecialist
     ? [["queue", "📋 My Queue"], ["earnings", "💰 My Earnings"]] as const
-    : [["queue", "📋 Specialist Queue"], ["earnings", "💰 Earnings Ledger"], ["directory", "👥 Directory"]] as const;
+    : [["queue", "📋 Specialist Queue"], ["earnings", "💰 Earnings Ledger"], ["scorecards", "📊 Scorecards"], ["directory", "👥 Directory"]] as const;
 
   return (
     <div style={{ padding: 16 }}>
@@ -54,6 +54,7 @@ export function SpecialistManager({ accent, show, currentStaffRole }: { accent: 
       </div>
       {tab === "queue" && <QueueTab A={A} show={show} isSpecialist={isSpecialist} />}
       {tab === "earnings" && <EarningsTab A={A} show={show} isSpecialist={isSpecialist} />}
+      {tab === "scorecards" && !isSpecialist && <ScorecardsTab A={A} show={show} clinicId={clinicId} />}
       {tab === "directory" && !isSpecialist && <DirectoryTab A={A} show={show} />}
     </div>
   );
@@ -406,6 +407,79 @@ function BatchSettleModal({ A, show, earningIds, total, onClose, onSettled }: an
         <button onClick={save} disabled={saving} style={btn("#10B981")}>{saving ? "Settling…" : "✓ Confirm Settlement"}</button>
       </div>
     </Modal>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SCORECARDS TAB — compare every specialist side by side
+// ════════════════════════════════════════════════════════════════════
+function ScorecardsTab({ A, show, clinicId }: any) {
+  const [specs, setSpecs] = useState<any[]>([]);
+  const [earnings, setEarnings] = useState<any[]>([]);
+  const [work, setWork] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [sp, ea, wk] = await Promise.all([
+          api.specListSpecialists().catch(() => []),
+          api.specListEarnings({}).catch(() => []),
+          clinicId ? api.workshopSpecialistWork(clinicId).catch(() => []) : Promise.resolve([]),
+        ]);
+        setSpecs(Array.isArray(sp) ? sp : []);
+        setEarnings(Array.isArray(ea) ? ea : (ea?.items || []));
+        setWork(Array.isArray(wk) ? wk : []);
+      } catch (e: any) { show?.(e?.message || "Could not load scorecards"); }
+      finally { setLoading(false); }
+    })();
+  }, [clinicId]); // eslint-disable-line
+
+  const rows = useMemo(() => specs.map((s: any) => {
+    const myWork = work.filter((w: any) => w.specialist_id === s.id);
+    const active = myWork.filter((w: any) => !["closed", "done", "verified"].includes(w.specialist_session_status || "pending")).length;
+    const doneList = myWork.filter((w: any) => ["closed", "done", "verified"].includes(w.specialist_session_status));
+    const myEarn = earnings.filter((e: any) => e.specialist_id === s.id);
+    const owed = myEarn.filter((e: any) => !e.is_settled).reduce((acc: number, e: any) => acc + (Number(e.amount || 0) - Number(e.settled_amount || 0)), 0);
+    const settled = myEarn.filter((e: any) => e.is_settled).reduce((acc: number, e: any) => acc + Number(e.settled_amount || 0), 0);
+    const ts = doneList.map((w: any) => {
+      const a = w.scheduled_date || w.created_at;
+      const b = w.verified_at || w.closed_at || w.completed_at || w.updated_at;
+      if (!a || !b) return null;
+      const d = (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
+      return d >= 0 && d < 365 ? d : null;
+    }).filter((x: any): x is number => x !== null);
+    const turn = ts.length ? ts.reduce((s: number, x: number) => s + x, 0) / ts.length : null;
+    return { id: s.id, name: s.name, spec: s.specialization, active, done: doneList.length, owed, settled, turn };
+  }).sort((a, b) => b.owed - a.owed), [specs, work, earnings]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: MUTE }}>Loading scorecards…</div>;
+  if (rows.length === 0) return <div style={{ padding: 40, textAlign: "center", color: MUTE }}>No specialists yet.</div>;
+
+  const th: any = { padding: "11px 14px", textAlign: "left", fontSize: 12, color: MUTE, fontWeight: 800, borderBottom: `1.5px solid ${LINE}`, whiteSpace: "nowrap" };
+  const td: any = { padding: "12px 14px", fontSize: 14, borderBottom: `1px solid ${SOFT}`, whiteSpace: "nowrap" };
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,.06)", overflow: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr style={{ background: SOFT }}>
+          {["Specialist", "Active", "Done", "Avg Turnaround", "Earnings Owed", "Settled"].map(h => <th key={h} style={th}>{h}</th>)}
+        </tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ ...td, fontWeight: 700, color: INK }}>{r.name}{r.spec ? <span style={{ color: MUTE, fontWeight: 500 }}> · {r.spec}</span> : ""}</td>
+              <td style={{ ...td, color: r.active ? "#0E7C7B" : MUTE, fontWeight: 700 }}>{r.active}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{r.done}</td>
+              <td style={{ ...td, color: MUTE }}>{r.turn !== null ? `${r.turn.toFixed(1)}d` : "—"}</td>
+              <td style={{ ...td, fontWeight: 800, color: r.owed > 0 ? "#EF4444" : MUTE }}>{fmt(r.owed)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "#10B981" }}>{fmt(r.settled)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

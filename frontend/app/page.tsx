@@ -649,7 +649,7 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
         {/* STAFF (User Control) */}
         {!loading&&sec==="lab"&&<LabManagement staff={staff} accent={accentColor} show={show} onNavigate={setSec} />}
 
-        {!loading&&sec==="specialists"&&<SpecialistManager accent={accentColor} show={show} currentStaffRole={staff?.role} />}
+        {!loading&&sec==="specialists"&&<SpecialistManager accent={accentColor} show={show} currentStaffRole={staff?.role} clinicId={staff?.clinic_id} />}
 
         {!loading&&sec==="mypractice"&&<SpecialistModule staff={staff} accent={accentColor} show={show} />}
 
