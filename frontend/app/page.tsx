@@ -637,7 +637,7 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
         </div>}
 
         {/* STAFF (User Control) */}
-        {!loading&&sec==="lab"&&<LabManagement staff={staff} accent={accentColor} show={show} />}
+        {!loading&&sec==="lab"&&<LabManagement staff={staff} accent={accentColor} show={show} onNavigate={setSec} />}
 
         {!loading&&sec==="specialists"&&<SpecialistManager accent={accentColor} show={show} currentStaffRole={staff?.role} />}
 

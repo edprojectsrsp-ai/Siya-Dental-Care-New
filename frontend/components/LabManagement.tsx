@@ -21,6 +21,7 @@ const A_DEEP = "#0A5C5B";       // accessible darker accent for text on light
 const INK = "#0F172A";
 const MUTE = "#64748B";
 const LINE = "#E2E8F0";
+const SOFT = "#F8FAFC";
 const BG = "#F8FAFC";
 const SEV = {
   pending:    "#3B82F6",
@@ -35,9 +36,21 @@ const SEV = {
 };
 const SHADE_OPTIONS = ["A1","A2","A3","A3.5","A4","B1","B2","B3","B4","C1","C2","C3","C4","D1","D2","D3","D4"];
 
-export default function LabManagement({ staff, show, accent = A }: any) {
+export default function LabManagement({ staff, show, accent = A, onNavigate }: any) {
   const [tab, setTab] = useState<"orders" | "vendors" | "ledger">("orders");
   const canSeeLabMoney = ["doctor", "admin"].includes(staff?.role);
+
+  // Close the loop: when lab work is Ready, jump straight into booking the fitting visit.
+  const bookFitting = (order: any) => {
+    try {
+      sessionStorage.setItem("pdb_book_patient", JSON.stringify({
+        id: order.patient_id, name: order.patient_name, phone: order.patient_phone || "",
+        reason: `Fitting — ${order.work_type}`,
+      }));
+    } catch {}
+    if (onNavigate) { onNavigate("appointments"); show?.("Book the fitting visit for this patient"); }
+    else show?.("Open Appointments to book the fitting visit");
+  };
   const tabs = [
     { v: "orders", l: "📦 Orders" },
     ...(canSeeLabMoney ? [{ v: "vendors", l: "🏭 Vendors" }, { v: "ledger", l: "📊 Ledger" }] : []),
@@ -61,7 +74,7 @@ export default function LabManagement({ staff, show, accent = A }: any) {
           ))}
         </div>
         <div style={{ padding: 20 }}>
-          {tab === "orders" && <OrdersTab staff={staff} show={show} />}
+          {tab === "orders" && <OrdersTab staff={staff} show={show} onBookFitting={bookFitting} />}
           {tab === "vendors" && canSeeLabMoney && <VendorsTab staff={staff} show={show} />}
           {tab === "ledger" && canSeeLabMoney && <LedgerTab staff={staff} show={show} />}
         </div>
@@ -73,7 +86,7 @@ export default function LabManagement({ staff, show, accent = A }: any) {
 // ─────────────────────────────────────────────────────────────────────────
 // ORDERS TAB
 // ─────────────────────────────────────────────────────────────────────────
-function OrdersTab({ staff, show }: any) {
+function OrdersTab({ staff, show, onBookFitting }: any) {
   const [orders, setOrders] = useState<any[]>([]);
   const [filter, setFilter] = useState<string>("active");
   const [loading, setLoading] = useState(true);
@@ -138,6 +151,7 @@ function OrdersTab({ staff, show }: any) {
           onClose={() => setClosing(o)}
           onEdit={() => setEditing(o)}
           onComplete={() => setCompleting(o)}
+          onBookFitting={onBookFitting}
           show={show}
           onChange={load} />
       ))}
@@ -196,7 +210,7 @@ function OrdersTab({ staff, show }: any) {
   );
 }
 
-function OrderCard({ order, staff, onReceive, onClose, onEdit, onComplete, show, onChange }: any) {
+function OrderCard({ order, staff, onReceive, onClose, onEdit, onComplete, onBookFitting, show, onChange }: any) {
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = order.expected_date && order.expected_date < today && !["received", "fitted", "completed", "cancelled"].includes(order.status);
   const isLocked = ["completed", "cancelled"].includes(order.status);
@@ -215,6 +229,17 @@ function OrderCard({ order, staff, onReceive, onClose, onEdit, onComplete, show,
       (order.expected_date ? `\nExpected by: ${order.expected_date}` : "") +
       (order.cost > 0 ? `\nAgreed cost: ₹${order.cost}` : "") +
       (order.notes ? `\nNotes: ${order.notes}` : "");
+    window.open(`https://wa.me/${to}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+  const chaseVendor = () => {
+    const to = labWa();
+    if (!to) { show?.("No WhatsApp/phone on file for this lab"); return; }
+    const daysLate = order.expected_date ? Math.ceil((Date.now() - new Date(order.expected_date).getTime()) / 86400000) : 0;
+    const msg = `⏰ Reminder — lab order #${order.serial_no || ""} is overdue` +
+      (daysLate > 0 ? ` by ${daysLate} day(s)` : "") + `.\n` +
+      `Work: ${order.work_type} for ${order.patient_name}` +
+      (order.expected_date ? `\nWas expected by: ${order.expected_date}` : "") +
+      `\nKindly share an updated delivery date. Thank you.`;
     window.open(`https://wa.me/${to}?text=${encodeURIComponent(msg)}`, "_blank");
   };
   const balance = Number(order.cost || 0) - Number(order.amount_paid || 0);
@@ -296,6 +321,12 @@ function OrderCard({ order, staff, onReceive, onClose, onEdit, onComplete, show,
         )}
         {["pending", "sent"].includes(order.status) && (
           <button onClick={sendToLab} style={btnSmall("#059669")}>WA → Lab</button>
+        )}
+        {isOverdue && (
+          <button onClick={chaseVendor} style={btnSmall("#EF4444")}>⏰ Chase vendor</button>
+        )}
+        {order.status === "received" && onBookFitting && (
+          <button onClick={() => onBookFitting(order)} style={btnSmall("#6366F1")}>📅 Book fitting</button>
         )}
         {canSeeLabMoney && ["received", "fitted", "completed"].includes(order.status) && order.cost > 0 && balance > 0 && (
           <button onClick={payLab} style={btnSmall("#F59E0B")}>💰 Pay lab ₹{balance.toLocaleString()}</button>
@@ -608,19 +639,46 @@ function ConfirmReceiveModal({ order, onClose, onReceived, show }: any) {
 // ─────────────────────────────────────────────────────────────────────────
 function VendorsTab({ staff, show }: any) {
   const [vendors, setVendors] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<any>(null);
   const [creating, setCreating] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
 
   const load = async () => {
     setLoading(true);
     try {
-      const d = await api.apiFetch?.(`/api/lab/vendors?clinic_id=${staff.clinic_id}`);
+      const [d, o] = await Promise.all([
+        api.apiFetch?.(`/api/lab/vendors?clinic_id=${staff.clinic_id}`),
+        api.apiFetch?.(`/api/lab/orders?clinic_id=${staff.clinic_id}`).catch(() => null),
+      ]);
       setVendors(d?.vendors || []);
+      setOrders(Array.isArray(o) ? o : (o?.orders || []));
     } catch (e: any) { show("Error: " + e.message); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line
+
+  // Per-vendor scorecard derived from order history (best-effort on-time %).
+  const scoreFor = (vid: string) => {
+    const list = orders.filter((o: any) => o.vendor_id === vid);
+    const done = list.filter((o: any) => ["received", "fitted", "completed"].includes(o.status));
+    const active = list.filter((o: any) => ["pending", "sent"].includes(o.status));
+    const overdue = list.filter((o: any) => o.expected_date && o.expected_date < today && !["received", "fitted", "completed", "cancelled"].includes(o.status));
+    const rated = done.map((o: any) => {
+      const delivered = o.received_at || o.completed_at || o.updated_at;
+      if (!o.expected_date || !delivered) return null;
+      return String(delivered).slice(0, 10) <= o.expected_date ? 1 : 0;
+    }).filter((x: any) => x !== null) as number[];
+    const onTime = rated.length ? Math.round((100 * rated.reduce((s, x) => s + x, 0)) / rated.length) : null;
+    return { total: list.length, active: active.length, overdue: overdue.length, done: done.length, onTime };
+  };
+  const Metric = ({ label, value, color }: { label: string; value: any; color?: string }) => (
+    <div style={{ textAlign: "center" as const, minWidth: 56 }}>
+      <div style={{ fontSize: 16, fontWeight: 900, color: color || INK }}>{value}</div>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: MUTE, textTransform: "uppercase" as const, letterSpacing: .4 }}>{label}</div>
+    </div>
+  );
 
   return (
     <div>
@@ -628,13 +686,15 @@ function VendorsTab({ staff, show }: any) {
         <button onClick={() => setCreating(true)} style={btnPrimary}>+ Add vendor</button>
       </div>
       {loading && <div style={loadingDiv}>⏳ Loading…</div>}
-      {vendors.map(v => (
+      {vendors.map(v => {
+        const sc = scoreFor(v.id);
+        return (
         <div key={v.id} style={{
           background: "#fff", borderRadius: 14, padding: 14, marginBottom: 8,
-          border: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between",
-          alignItems: "center" as const, gap: 12,
+          border: `1px solid ${sc.overdue > 0 ? "#FCA5A5" : LINE}`, display: "flex", justifyContent: "space-between",
+          alignItems: "center" as const, gap: 12, flexWrap: "wrap" as const,
         }}>
-          <div>
+          <div style={{ flex: 1, minWidth: 200 }}>
             <b style={{ fontSize: 15 }}>{v.name}</b>
             <div style={{ fontSize: 12, color: MUTE, marginTop: 3 }}>
               📞 {v.phone || "—"}
@@ -643,9 +703,16 @@ function VendorsTab({ staff, show }: any) {
             </div>
             {v.specialties && <div style={{ fontSize: 11, color: A_DEEP, marginTop: 3 }}>{v.specialties}</div>}
           </div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" as const, background: SOFT, borderRadius: 12, padding: "8px 14px" }}>
+            <Metric label="Orders" value={sc.total} />
+            <Metric label="Active" value={sc.active} color={sc.active ? "#0E7C7B" : INK} />
+            <Metric label="Overdue" value={sc.overdue} color={sc.overdue ? "#EF4444" : "#94A3B8"} />
+            <Metric label="On-time" value={sc.onTime === null ? "—" : `${sc.onTime}%`} color={sc.onTime === null ? "#94A3B8" : sc.onTime >= 80 ? "#10B981" : sc.onTime >= 50 ? "#F59E0B" : "#EF4444"} />
+          </div>
           <button onClick={() => setEditing(v)} style={btnGhost}>Edit</button>
         </div>
-      ))}
+        );
+      })}
 
       {(creating || editing) && (
         <VendorModal vendor={editing} staff={staff}
