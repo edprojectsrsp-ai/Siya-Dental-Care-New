@@ -30,6 +30,47 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = 
   verified:  { bg: "#D1FAE5", fg: "#065F46", label: "VERIFIED" },
 };
 
+// ── Referral-loop pipeline: one tracker per case ──
+const PIPELINE = [
+  { key: "assigned",     label: "Assigned" },
+  { key: "confirmed",    label: "Confirmed" },
+  { key: "in_treatment", label: "Treatment" },
+  { key: "done",         label: "Done" },
+  { key: "verified",     label: "Verified" },
+  { key: "paid",         label: "Paid" },
+];
+// Map a case's scattered statuses to a single pipeline index.
+function caseStageIndex(item: any): number {
+  const ss = item.specialist_session_status || "pending";
+  const wf = item.workflow_status || "";
+  const settled = item.is_settled || item.earning_settled;
+  if (ss === "verified") return settled ? 5 : 4;
+  if (["closed", "done"].includes(ss)) return 3;
+  if (["in_treatment", "in_progress"].includes(wf)) return 2;
+  if (["arrived", "ready"].includes(wf) || item.specialist_confirmation_status === "confirmed") return 1;
+  return 0;
+}
+function CaseTracker({ stage, accent }: { stage: number; accent: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", flexBasis: "100%", marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E2E8F0" }}>
+      {PIPELINE.map((s, i) => {
+        const done = i < stage, current = i === stage;
+        return (
+          <React.Fragment key={s.key}>
+            <span style={{
+              fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap",
+              background: done ? accent : current ? accent + "1F" : "#F1F5F9",
+              color: done ? "#fff" : current ? accent : "#94A3B8",
+              border: current ? `1.5px solid ${accent}` : "1.5px solid transparent",
+            }}>{done ? "✓ " : ""}{s.label}</span>
+            {i < PIPELINE.length - 1 && <span style={{ color: i < stage ? accent : "#CBD5E1", fontSize: 12, fontWeight: 800 }}>›</span>}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function SpecialistModule({ staff, accent = TEAL, show }: {
   staff: any; accent?: string; show: (m: string) => void;
 }) {
@@ -86,6 +127,18 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
   const myClosed = work.filter(w => ["closed", "done"].includes(sessionStatus(w)));
   const myVerified = work.filter(w => sessionStatus(w) === "verified");
   const assignedCount = myAssigned.length;
+
+  // Scorecard: completed cases + average turnaround (assigned → done), best-effort from available dates.
+  const doneCases = [...myClosed, ...myVerified];
+  const turnarounds = doneCases.map((c: any) => {
+    const a = c.scheduled_date || c.created_at;
+    const b = c.verified_at || c.closed_at || c.completed_at || c.updated_at;
+    if (!a || !b) return null;
+    const d = (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
+    return d >= 0 && d < 365 ? d : null;
+  }).filter((x): x is number => x !== null);
+  const avgTurnaround = turnarounds.length ? turnarounds.reduce((s, x) => s + x, 0) / turnarounds.length : null;
+  const casesDone = doneCases.length;
 
   const pendingPayments  = earnings.filter((e: any) => !e.is_settled && e.case_status === "verified");
   const settledPayments  = earnings.filter((e: any) => e.is_settled);
@@ -245,6 +298,7 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
             Waiting for arrival
           </span>
         )}
+        <CaseTracker stage={caseStageIndex(item)} accent={accent} />
       </div>
     );
   };
@@ -302,7 +356,15 @@ export default function SpecialistModule({ staff, accent = TEAL, show }: {
             <div style={{ fontSize: 22, fontWeight: 900 }}>{myClosed.length}</div>
           </div>
           <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "8px 14px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>PAYMENT PENDING</div>
+            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>CASES DONE</div>
+            <div style={{ fontSize: 22, fontWeight: 900 }}>{casesDone}</div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "8px 14px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>AVG TURNAROUND</div>
+            <div style={{ fontSize: 22, fontWeight: 900 }}>{avgTurnaround !== null ? `${avgTurnaround.toFixed(1)}d` : "—"}</div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "8px 14px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>EARNINGS OWED</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt(totalPending)}</div>
           </div>
           <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "8px 14px" }}>
