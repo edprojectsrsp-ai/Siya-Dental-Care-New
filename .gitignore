@@ -35,3 +35,5 @@ _ref_clinical_site/
 
 # Local DB dumps at repo root (the canonical seed lives in backend/db_init/)
 /Siya_Dental_Database_Plain_*.sql
+# Terminal session logs
+terminals/

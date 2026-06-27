@@ -1,8 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ClickToChatLink from "@/components/ClickToChatLink";
 import * as api from "@/lib/api";
+
+// ── Animated count-up for hero stats (0 → target, eased, slow) ──
+function parseStat(v: string) {
+  const mult = /k/i.test(v) ? 1000 : 1;
+  const num = parseFloat(v.replace(/[^0-9.]/g, "")) || 0;
+  const target = num * mult;
+  const decimals = v.includes(".") && mult === 1 ? 1 : 0;
+  const suffix = v.replace(/[0-9.,kK]/g, "");   // keep trailing symbols like "+"
+  return { target, decimals, suffix };
+}
+function CountUpStat({ value }: { value: string }) {
+  const { target, decimals, suffix } = useMemo(() => parseStat(value), [value]);
+  const [cur, setCur] = useState(0);
+  const ref = useRef<HTMLElement>(null);
+  const started = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const DURATION = 3000; // slow, deliberate count-up
+    const run = () => {
+      if (started.current) return;
+      started.current = true;
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const p = Math.min(1, (now - t0) / DURATION);
+        const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+        setCur(target * eased);
+        if (p < 1) requestAnimationFrame(tick);
+        else setCur(target);
+      };
+      requestAnimationFrame(tick);
+    };
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { run(); io.disconnect(); } });
+    }, { threshold: 0.4 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [target]);
+  const display = decimals ? cur.toFixed(1) : Math.round(cur).toLocaleString("en-IN");
+  return <dt ref={ref}>{display}{suffix}</dt>;
+}
 import "@/app/public-site.css";
 
 type SiteContent = {
@@ -343,7 +384,7 @@ export default function PublicMarketingSite({
             <dl className="ps-hero-stats">
               {DEFAULT_STATS.map((stat) => (
                 <div key={stat.label}>
-                  <dt>{stat.value}</dt>
+                  <CountUpStat value={stat.value} />
                   <dd>{stat.label}</dd>
                 </div>
               ))}
