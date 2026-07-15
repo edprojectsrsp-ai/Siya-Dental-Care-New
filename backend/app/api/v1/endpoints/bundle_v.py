@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.security import get_current_staff
+from app.core.upload_guard import check_size
 from app.services.messaging import send_message
 
 router = APIRouter(tags=["Bundle V"])
@@ -33,18 +34,23 @@ def _require_roles(staff: dict, *roles: str) -> None:
         raise HTTPException(403, "Insufficient permissions")
 
 
+_DATA_URL_EXTS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+
+
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:
     if not data_url.startswith("data:") or "," not in data_url:
         raise HTTPException(400, "Expected a data URL")
     header, payload = data_url.split(",", 1)
-    mime = header.split(";")[0].split(":", 1)[1] if ":" in header else "image/png"
-    ext = (mime.split("/")[-1] or "png").lower()
-    if ext == "jpeg":
-        ext = "jpg"
+    mime = (header.split(";")[0].split(":", 1)[1] if ":" in header else "image/png").lower()
+    ext = _DATA_URL_EXTS.get(mime)
+    if not ext:
+        raise HTTPException(400, f"Image type '{mime}' not allowed")
     try:
-        return base64.b64decode(payload), ext
+        content = base64.b64decode(payload)
     except (ValueError, binascii.Error) as exc:
         raise HTTPException(400, "Invalid image payload") from exc
+    check_size(content)
+    return content, ext
 
 
 def _save_data_url(data_url: str, subdir: str) -> str:

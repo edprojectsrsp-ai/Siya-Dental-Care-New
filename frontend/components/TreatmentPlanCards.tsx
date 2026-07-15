@@ -16,7 +16,7 @@
  * Props: items, accent, fmt, show, reload, onEdit, onJumpToTooth, labOrders
  */
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 
 // ──────────────────────────────────────────────────────
 // Types
@@ -69,9 +69,13 @@ interface TreatmentPlanCardsProps {
   onDelete: (item: PlanItem) => Promise<void>;
   onDuplicate: (item: PlanItem) => Promise<void>;
   onStatusCycle: (item: PlanItem) => Promise<void>;
+  onQuickPrice?: (item: PlanItem, rate: number, discount: number) => Promise<void> | void;
   onJumpToTooth?: (tooth: number) => void;
+  onOpenInCanvas?: (item: PlanItem) => void;
   labOrders?: LabOrder[];
   compact?: boolean;
+  /** Hides toolbar & extra actions — chair-side simple mode */
+  simple?: boolean;
 }
 
 // ──────────────────────────────────────────────────────
@@ -82,6 +86,7 @@ const SHADOW_HOVER = "0 4px 20px rgba(0,0,0,0.10)";
 const INK = "#0F172A";
 const MUTE = "#64748B";
 const SOFT = "#E2E8F0";
+const LINE = "#E2E8F0";
 const BG = "#F8FAFC";
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
@@ -251,22 +256,52 @@ function ActionBtn({ icon, title, color, onClick, size = 32 }: { icon: string; t
   );
 }
 
+// Labeled text button — clearer than an emoji for non-technical users
+function TextBtn({ label, color, onClick }: { label: string; color: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: `${color}10`, border: `1.5px solid ${color}33`, borderRadius: 9,
+        color, fontWeight: 800, fontSize: 12, padding: "6px 11px", cursor: "pointer",
+        fontFamily: "inherit", transition: "all 0.15s ease",
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${color}20`; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${color}10`; }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ──────────────────────────────────────────────────────
 // Single Treatment Card
 // ──────────────────────────────────────────────────────
 function TreatmentCard({
-  item, accent, fmt, onEdit, onDelete, onDuplicate, onStatusCycle,
-  onJumpToTooth, labOrder, isRecent, expanded, onToggleExpand,
+  item, accent, fmt, onEdit, onDelete, onDuplicate, onStatusCycle, onQuickPrice,
+  onJumpToTooth, onOpenInCanvas, labOrder, isRecent, expanded, onToggleExpand, simple,
 }: {
   item: PlanItem; accent: string; fmt: (n: number) => string;
   onEdit: () => void; onDelete: () => void; onDuplicate: () => void;
-  onStatusCycle: () => void; onJumpToTooth?: (n: number) => void;
+  onStatusCycle: () => void; onQuickPrice?: (item: PlanItem, rate: number, discount: number) => Promise<void> | void;
+  onJumpToTooth?: (n: number) => void;
+  onOpenInCanvas?: () => void;
   labOrder?: LabOrder; isRecent?: boolean; expanded: boolean; onToggleExpand: () => void;
+  simple?: boolean;
 }) {
   const st = STATUS_CONFIG[item.status] || STATUS_CONFIG.advised;
   const pr = PRIORITY_CONFIG[item.priority || "routine"] || PRIORITY_CONFIG.routine;
   const isCancelled = item.status === "cancelled";
   const teethArr = Array.isArray(item.teeth) ? item.teeth : [];
+
+  const [rate, setRate] = useState(String(item.doctor_rate ?? item.suggested_rate ?? 0));
+  const [disc, setDisc] = useState(String(item.discount ?? 0));
+  useEffect(() => {
+    setRate(String(item.doctor_rate ?? item.suggested_rate ?? 0));
+    setDisc(String(item.discount ?? 0));
+  }, [item.id, item.doctor_rate, item.suggested_rate, item.discount]);
+  const num = (v: string) => Math.max(0, parseFloat(v.replace(/[^0-9.]/g, "")) || 0);
+  const previewFinal = Math.max(0, num(rate) - num(disc));
 
   return (
     <div
@@ -278,79 +313,103 @@ function TreatmentCard({
         opacity: isCancelled ? 0.55 : 1,
         transition: "all 0.2s ease",
         overflow: "hidden",
+        position: "relative",
       }}
       onMouseEnter={e => { if (!isCancelled) (e.currentTarget as HTMLElement).style.boxShadow = SHADOW_HOVER; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = SHADOW; }}
     >
-      {/* ── Header row ── */}
-      <div style={{ padding: "14px 16px 10px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-
-        {/* Left: teeth + diagnosis */}
-        <div style={{ minWidth: 80, display: "flex", flexDirection: "column", gap: 4 }}>
-          <ToothChips teeth={teethArr} accent={accent} onJumpToTooth={onJumpToTooth} />
-          {teethArr.length === 0 && <div style={{ fontWeight: 700, fontSize: 12, color: MUTE }}>{item.area_label || "General"}</div>}
-          {item.diagnosis && (
-            <div style={{ fontSize: 10, color: MUTE, lineHeight: 1.3 }}>{item.diagnosis}</div>
+      <button type="button" onClick={onDelete} title="Delete treatment card"
+        aria-label={`Delete ${item.treatment_name || "treatment"} card`}
+        style={{
+          position: "absolute", top: 10, right: 10, zIndex: 3,
+          width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
+          border: "1.5px solid #FECACA", background: "#FEF2F2", color: "#DC2626",
+          borderRadius: 999, fontWeight: 950, fontSize: 17, lineHeight: 1,
+          cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 8px rgba(220,38,38,.12)",
+          transition: "background .15s, color .15s, box-shadow .15s",
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.background = "#DC2626";
+          e.currentTarget.style.color = "#fff";
+          e.currentTarget.style.boxShadow = "0 8px 18px rgba(220,38,38,.25)";
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.background = "#FEF2F2";
+          e.currentTarget.style.color = "#DC2626";
+          e.currentTarget.style.boxShadow = "0 2px 8px rgba(220,38,38,.12)";
+        }}
+      >
+        X
+      </button>
+      {/* ── Receipt-style layout — plain language for non-technical staff ── */}
+      <div style={{ padding: "16px 48px 12px 18px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          {teethArr.length > 0 ? (
+            <span style={{ background: `${accent}15`, color: accent, border: `2px solid ${accent}44`, borderRadius: 10, padding: "5px 12px", fontWeight: 900, fontSize: 14 }}>
+              {teethArr.length === 1 ? `Tooth ${teethArr[0]}` : `Teeth ${teethArr.join(", ")}`}
+            </span>
+          ) : (
+            <span style={{ background: SOFT, color: MUTE, borderRadius: 10, padding: "5px 12px", fontWeight: 800, fontSize: 13 }}>{item.area_label || "General"}</span>
+          )}
+          <button onClick={onStatusCycle} title="Tap to change status"
+            style={{ background: st.bg, color: st.color, border: `2px solid ${st.color}44`, borderRadius: 10, padding: "5px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+            {st.label}
+          </button>
+          <LabBadge labOrder={labOrder} />
+          {item.priority && item.priority !== "routine" && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: pr.color }}>{pr.label}</span>
           )}
         </div>
 
-        {/* Center: treatment name + status + priority */}
-        <div style={{ flex: 1, minWidth: 120 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{
-              fontWeight: 800, fontSize: 15,
-              textDecoration: isCancelled ? "line-through" : "none",
-              color: INK,
-            }}>
-              {item.treatment_name}
-            </span>
-            {item.priority && item.priority !== "routine" && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: pr.color }}>{pr.dot}</span>
-            )}
-          </div>
-
-          {/* Status pill — clickable to cycle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-            <button
-              onClick={onStatusCycle}
-              style={{
-                background: st.bg, color: st.color,
-                border: `1px solid ${st.color}33`, borderRadius: 999,
-                padding: "2px 10px", fontSize: 11, fontWeight: 800,
-                cursor: "pointer", transition: "all 0.15s ease",
-              }}
-              onMouseEnter={e => { (e.target as HTMLElement).style.borderColor = st.color; }}
-              onMouseLeave={e => { (e.target as HTMLElement).style.borderColor = `${st.color}33`; }}
-            >
-              {st.icon} {st.label}
-            </button>
-            <LabBadge labOrder={labOrder} />
-          </div>
-
-          <StepTimeline steps={item.completed_steps} accent={accent} />
+        <div style={{ fontWeight: 900, fontSize: 18, color: INK, textDecoration: isCancelled ? "line-through" : "none", marginBottom: 4, lineHeight: 1.3 }}>
+          {item.treatment_name}
         </div>
+        {item.diagnosis && (
+          <div style={{ fontSize: 13, color: MUTE, marginBottom: 10 }}>Diagnosis: {item.diagnosis}</div>
+        )}
+        {teethArr.length > 0 && onJumpToTooth && (
+          <div style={{ marginBottom: 10 }}>
+            <ToothChips teeth={teethArr} accent={accent} onJumpToTooth={onJumpToTooth} />
+          </div>
+        )}
+        <StepTimeline steps={item.completed_steps} accent={accent} />
 
-        {/* Right: financial + actions */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 130 }}>
-          {/* Cost breakdown */}
-          <div style={{ textAlign: "right" as const }}>
-            {item.suggested_rate !== item.doctor_rate && (
-              <div style={{ fontSize: 10, color: MUTE, textDecoration: "line-through" }}>₹{item.suggested_rate.toLocaleString()}</div>
-            )}
-            <div style={{ fontWeight: 900, color: accent, fontSize: 16 }}>{fmt(item.final_amount)}</div>
-            {item.discount > 0 && (
-              <div style={{ fontSize: 10, color: "#DC2626", fontWeight: 600 }}>−{fmt(item.discount)} discount</div>
+        {/* Inline price — always visible, no hidden tap */}
+        {onQuickPrice && (
+          <div style={{ marginTop: 12, background: BG, borderRadius: 12, padding: 12, border: `1.5px solid ${SOFT}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <label>
+                <div style={{ fontSize: 10, fontWeight: 800, color: MUTE, marginBottom: 4 }}>RATE (₹)</div>
+                <input type="text" inputMode="numeric" value={rate} onChange={e => setRate(e.target.value)}
+                  style={{ width: "100%", boxSizing: "border-box", border: `1.5px solid ${LINE}`, borderRadius: 8, padding: "10px", fontSize: 16, fontWeight: 800, fontFamily: "inherit" }} />
+              </label>
+              <label>
+                <div style={{ fontSize: 10, fontWeight: 800, color: MUTE, marginBottom: 4 }}>DISCOUNT (₹)</div>
+                <input type="text" inputMode="numeric" value={disc} onChange={e => setDisc(e.target.value)}
+                  style={{ width: "100%", boxSizing: "border-box", border: `1.5px solid ${LINE}`, borderRadius: 8, padding: "10px", fontSize: 16, fontWeight: 800, fontFamily: "inherit" }} />
+              </label>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: MUTE }}>Patient pays</span>
+              <span style={{ fontSize: 22, fontWeight: 900, color: accent }}>{fmt(previewFinal)}</span>
+            </div>
+            {(num(rate) !== (item.doctor_rate ?? 0) || num(disc) !== (item.discount ?? 0)) && (
+              <button onClick={() => onQuickPrice(item, num(rate), num(disc))}
+                style={{ width: "100%", marginTop: 10, border: "none", background: accent, color: "#fff", borderRadius: 10, padding: "11px", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
+                Save price
+              </button>
             )}
           </div>
+        )}
 
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: 4 }}>
-            <ActionBtn icon="✏️" title="Edit" color="#3B82F6" onClick={onEdit} />
-            <ActionBtn icon="⧉" title="Duplicate" color="#8B5CF6" onClick={onDuplicate} />
-            <ActionBtn icon="🗑" title="Delete" color="#EF4444" onClick={onDelete} />
-            <ActionBtn icon={expanded ? "▲" : "▼"} title="Details" color={MUTE} onClick={onToggleExpand} />
+        {!simple && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <TextBtn label="Full edit" color="#3B82F6" onClick={onEdit} />
+            {onOpenInCanvas && teethArr.length > 0 && <TextBtn label="Open on chart" color={accent} onClick={onOpenInCanvas} />}
+            <TextBtn label="Duplicate" color="#8B5CF6" onClick={onDuplicate} />
+            <TextBtn label={expanded ? "Hide details" : "Show details"} color={MUTE} onClick={onToggleExpand} />
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Sitting progress bar ── */}
@@ -495,7 +554,7 @@ type ViewMode = "list" | "grouped" | "compact";
 // Main Component
 // ──────────────────────────────────────────────────────
 export default function TreatmentPlanCards(props: TreatmentPlanCardsProps) {
-  const { items, accent, fmt, show, reload, onEdit, onDelete, onDuplicate, onStatusCycle, onJumpToTooth, labOrders = [], compact = false } = props;
+  const { items, accent, fmt, show, reload, onEdit, onDelete, onDuplicate, onStatusCycle, onQuickPrice, onJumpToTooth, onOpenInCanvas, labOrders = [], compact = false, simple = false } = props;
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [recentId] = useState<string | null>(null);
@@ -534,8 +593,10 @@ export default function TreatmentPlanCards(props: TreatmentPlanCardsProps) {
 
   if (items.length === 0) {
     return (
-      <div style={{ padding: "20px 18px", color: MUTE, fontSize: 13.5 }}>
-        No treatments yet — pick one above. Tooth chart, prescriptions and financials all update automatically from here.
+      <div style={{ padding: "28px 20px", textAlign: "center", color: MUTE }}>
+        <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+        <div style={{ fontWeight: 800, fontSize: 15, color: INK, marginBottom: 4 }}>No treatments yet</div>
+        <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>Select a tooth on the chart above and tap a treatment chip — it appears here with price you can edit inline.</div>
       </div>
     );
   }
@@ -565,18 +626,21 @@ export default function TreatmentPlanCards(props: TreatmentPlanCardsProps) {
       onDelete={async () => onDelete(item)}
       onDuplicate={async () => onDuplicate(item)}
       onStatusCycle={async () => onStatusCycle(item)}
+      onQuickPrice={onQuickPrice}
       onJumpToTooth={onJumpToTooth}
+      onOpenInCanvas={onOpenInCanvas ? () => onOpenInCanvas(item) : undefined}
       labOrder={labMap[item.id]}
       isRecent={recentId === item.id}
       expanded={expandedId === item.id}
       onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
+      simple={simple}
     />
   );
 
   return (
     <div>
       {/* ── Toolbar ── */}
-      <div style={{
+      {!simple && <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "10px 16px", flexWrap: "wrap", gap: 8,
       }}>
@@ -600,7 +664,7 @@ export default function TreatmentPlanCards(props: TreatmentPlanCardsProps) {
             Hide done
           </label>
         </div>
-      </div>
+      </div>}
 
       {/* ── Summary bar ── */}
       <div style={{ padding: "0 16px 10px" }}>
@@ -657,7 +721,7 @@ export default function TreatmentPlanCards(props: TreatmentPlanCardsProps) {
                   <div style={{ fontWeight: 800, color: accent, textAlign: "right" as const }}>{fmt(item.final_amount)}</div>
                   <div style={{ display: "flex", gap: 3, justifyContent: "flex-end" }}>
                     <ActionBtn icon="✏️" title="Edit" color="#3B82F6" onClick={() => onEdit(item)} size={26} />
-                    <ActionBtn icon="🗑" title="Delete" color="#EF4444" onClick={() => onDelete(item)} size={26} />
+                    <ActionBtn icon="X" title="Delete" color="#EF4444" onClick={() => onDelete(item)} size={26} />
                   </div>
                 </div>
               );

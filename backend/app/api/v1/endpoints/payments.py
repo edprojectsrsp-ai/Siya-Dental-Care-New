@@ -14,6 +14,10 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 
 @router.post("/collect", response_model=PaymentOut, status_code=201)
 async def collect(req: PaymentCollect, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
+    if req.amount is None or req.amount <= 0:
+        raise HTTPException(400, "Payment amount must be greater than zero")
+    if req.payment_mode not in {"cash", "upi", "card", "razorpay", "bank_transfer", "other"}:
+        raise HTTPException(400, f"Unsupported payment_mode: {req.payment_mode}")
     pay = PaymentTransaction(patient_id=req.patient_id, plan_id=req.plan_id, appointment_id=req.appointment_id,
                               clinic_id=req.clinic_id, amount=req.amount, payment_mode=req.payment_mode,
                               remarks=req.remarks, date=req.date or date.today())

@@ -40,4 +40,12 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    # Refuse to run outside DEBUG with the default JWT signing key — forged
+    # staff tokens (including admin) would be trivial otherwise.
+    if not s.DEBUG and s.SECRET_KEY == "change-me":
+        raise RuntimeError(
+            "SECRET_KEY is still the default 'change-me'. "
+            "Set a strong SECRET_KEY in backend/.env before running with DEBUG=false."
+        )
+    return s

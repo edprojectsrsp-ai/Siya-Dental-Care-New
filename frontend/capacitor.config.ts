@@ -24,11 +24,14 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'in.siyadental.app',
   appName: 'Siya Dental Care',
-  webDir: 'out',               // Next.js static export folder
+  webDir: 'out',               // placeholder — app loads the server URL below
   server: {
-    // For dev: point to running Next.js. For production APK, this is removed.
-    // url: 'http://192.168.1.100:3000',
-    // cleartext: true,
+    // Staff mobile app = WebView onto the clinic server's /m shell
+    // (Appointments · Lab · Patients only). The app needs the live API, so
+    // server-URL mode is correct — no static export.
+    // ⚠ CHANGE THIS to your clinic server's LAN IP / domain before building:
+    url: 'http://192.168.1.100:3000/m',
+    cleartext: true,           // allow plain http on LAN; use https + remove for a public domain
     androidScheme: 'https',
   },
   android: {

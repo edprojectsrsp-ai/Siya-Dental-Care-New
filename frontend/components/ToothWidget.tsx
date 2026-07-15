@@ -1,5 +1,5 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 export const ADULT_Q = [[18, 17, 16, 15, 14, 13, 12, 11], [21, 22, 23, 24, 25, 26, 27, 28], [48, 47, 46, 45, 44, 43, 42, 41], [31, 32, 33, 34, 35, 36, 37, 38]];
 export const CHILD_Q = [[55, 54, 53, 52, 51], [61, 62, 63, 64, 65], [85, 84, 83, 82, 81], [71, 72, 73, 74, 75]];
@@ -156,6 +156,16 @@ export interface ToothVisualState {
   kind?: "cavity" | "filling" | "rct" | "crown" | "bridge" | "implant" | "extraction" | "missing" | "scaling" | "veneer" | "other" | null;
   /** Short treatment label shown under tooth number (e.g. RCT, CRN) */
   label?: string;
+  /** Surface observation dots for focused-tooth charting */
+  examSurfaces?: string[];
+  /** Layer visibility — when false, that layer's visuals are suppressed */
+  showObs?: boolean;
+  showDx?: boolean;
+  showTx?: boolean;
+  /** Rich hover summary */
+  tooltip?: string;
+  /** Structured hover card content — exam findings / diagnoses / treatments */
+  card?: { exam: string[]; diag: string[]; tx: { name: string; status?: string }[] };
 }
 
 /** Sprint P1: status overlay drawn over the tooth SVG. Returns null when no marker applies. */
@@ -256,6 +266,25 @@ function ToothStatusMarker({ kind, variant }: { kind?: string | null; variant: s
   return null;
 }
 
+/** Tiny surface marker on tooth crown (clinical canvas layer 1) */
+function ExamSurfaceDots({ surfaces, variant }: { surfaces: string[]; variant: string }) {
+  if (!surfaces?.length) return null;
+  const w = variant === "molar" ? 54 : variant === "premolar" ? 50 : 46;
+  const h = variant === "canine" || variant === "molar" ? 68 : 66;
+  const spots: Record<string, [number, number]> = {
+    O: [w / 2, 14], M: [10, 22], D: [w - 10, 22], B: [w / 2, 26], L: [w / 2, 30],
+  };
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}
+      style={{ position: "absolute" as const, top: 4, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" as const }}>
+      {surfaces.map((s, i) => {
+        const p = spots[s.toUpperCase()] || [w / 2, 18];
+        return <circle key={`${s}-${i}`} cx={p[0]} cy={p[1]} r="3.5" fill="#EAB308" stroke="#CA8A04" strokeWidth="1" opacity="0.95" />;
+      })}
+    </svg>
+  );
+}
+
 export function ToothWidget({
   child,
   onChildChange,
@@ -270,6 +299,12 @@ export function ToothWidget({
   showUpper = true,
   showLower = true,
   headerExtra,
+  pulsingTeeth = [],
+  focusMode = false,
+  onToothDoubleClick,
+  hoverTooth,
+  onHoverTooth,
+  title = "🦷 Dental Chart",
 }: {
   child: boolean;
   onChildChange?: (v: boolean) => void;
@@ -284,8 +319,25 @@ export function ToothWidget({
   showUpper?: boolean;
   showLower?: boolean;
   headerExtra?: React.ReactNode;
+  pulsingTeeth?: number[];
+  /** When true and exactly one tooth is selected, non-selected teeth are dimmed */
+  focusMode?: boolean;
+  onToothDoubleClick?: (n: number) => void;
+  hoverTooth?: number | null;
+  onHoverTooth?: (n: number | null) => void;
+  title?: string;
 }) {
   const Q = child ? CHILD_Q : ADULT_Q;
+  // Arch mode: teeth follow a real dental-arch curve (∩ upper / ∪ lower) — Curve/Archy-style.
+  const [arch, setArch] = useState(true);
+  // Hover card position (screen coords) — rendered fixed so overflow:auto rows can't clip it.
+  const [hoverRect, setHoverRect] = useState<{ x: number; y: number } | null>(null);
+  const enterTooth = (n: number, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setHoverRect({ x: r.left + r.width / 2, y: r.top });
+    onHoverTooth?.(n);
+  };
+  const leaveTooth = () => { setHoverRect(null); onHoverTooth?.(null); };
   const regions: { id: ChartRegion; label: string }[] = [
     { id: "full", label: "Full Mouth" }, { id: "upper", label: "Upper" }, { id: "lower", label: "Lower" },
     { id: "ur", label: "Upper Right" }, { id: "ul", label: "Upper Left" },
@@ -318,10 +370,98 @@ export function ToothWidget({
 
   const clearSelection = () => onSelectedChange([]);
 
+  // One tooth cell — shared by upper/lower rows. In arch mode each tooth is
+  // rotated + dropped along a parabola so the row reads like a real mouth.
+  const renderTooth = (n: number, i: number, count: number, upper: boolean) => {
+    const tc = toothColor(n);
+    const isSel = selected.includes(n);
+    const isPulse = pulsingTeeth.includes(n);
+    const inRegion = visibleSet.has(n);
+    const focusDim = focusMode && selected.length === 1 && !isSel;
+    const dimmed = focusDim || (!inRegion && region !== "full" && !isSel);
+    const ringColor = isSel ? accent : (inRegion && region !== "full" ? accent : tc.border);
+    const ringWidth = isSel ? "2.5px" : "2px";
+    const bgFill = isSel ? `${accent}1F` : (inRegion && region !== "full" ? `${accent}10` : tc.bg);
+    const c = (count - 1) / 2;
+    const t = c > 0 ? (i - c) / c : 0;
+    const rot = arch ? t * 13 * (upper ? 1 : -1) : 0;
+    const dy = arch ? t * t * 24 * (upper ? 1 : -1) : 0;
+    const midGap = arch && i === count / 2 ? 14 : (i === count / 2 ? 16 : 0);
+    const showTxOverlay = tc.showTx !== false;
+    const showObs = tc.showObs !== false;
+    const variant = toothVariant(n);
+    return (
+      <div key={n} style={{ transform: `translateY(${dy}px) rotate(${rot}deg)`, transition: "transform .3s ease", marginLeft: midGap, position: "relative" }}>
+        <button
+          type="button"
+          onClick={() => pickTooth(n)}
+          onDoubleClick={() => onToothDoubleClick?.(n)}
+          onMouseEnter={(e) => enterTooth(n, e.currentTarget)}
+          onMouseLeave={leaveTooth}
+          className={`tw-tooth-btn${isPulse ? " tw-tooth-pulse" : ""}`}
+          style={{
+            width: 64, minHeight: 96, borderRadius: 12, cursor: "pointer", fontFamily: "inherit", position: "relative",
+            border: `${ringWidth} solid ${ringColor}`,
+            background: bgFill,
+            boxShadow: isSel ? `0 4px 14px ${accent}33` : (inRegion && region !== "full" ? `0 2px 8px ${accent}22` : "0 1px 3px rgba(15,23,42,.08)"),
+            padding: "4px 2px 6px",
+            opacity: dimmed ? 0.38 : 1,
+            filter: dimmed ? "saturate(0.4)" : "none",
+            transition: "opacity .2s, filter .2s, border-color .15s, background .15s, box-shadow .15s, transform .15s",
+          }}
+        >
+          <ToothSvg variant={variant} selected={isSel || (inRegion && region !== "full")} border={ringColor} bg={bgFill} />
+          {showObs && tc.examSurfaces && tc.examSurfaces.length > 0 && <ExamSurfaceDots surfaces={tc.examSurfaces} variant={variant} />}
+          {showTxOverlay && <ToothStatusMarker kind={tc.kind} variant={variant} />}
+          <div style={{ fontWeight: 900, fontSize: 13, color: tc.done ? "#065F46" : (isSel ? accent : "#0F172A"), marginTop: 2 }}>{n}</div>
+          {tc.label && showTxOverlay && (
+            <div style={{ fontSize: 10, fontWeight: 800, color: tc.done ? "#059669" : (tc.prog ? "#D97706" : accent), marginTop: 1, lineHeight: 1.1, maxWidth: 58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={tc.label}>{tc.label}</div>
+          )}
+          {isSel && <div style={{ position: "absolute", bottom: 4, left: "50%", transform: "translateX(-50%)", width: 16, height: 16, borderRadius: "50%", background: accent, color: "#fff", fontSize: 10, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</div>}
+          {tc.hasIssue && <span style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#EF4444" }} />}
+        </button>
+      </div>
+    );
+  };
+
+  // Fixed-position hover card — escapes overflow:auto so it's never clipped
+  const hoverCard = (() => {
+    if (hoverTooth == null || !hoverRect) return null;
+    const tc = toothColor(hoverTooth);
+    if (!tc.card || (tc.card.exam.length + tc.card.diag.length + tc.card.tx.length) === 0) return null;
+    const W = 200;
+    const left = Math.max(8, Math.min(hoverRect.x - W / 2, (typeof window !== "undefined" ? window.innerWidth : 1200) - W - 8));
+    return (
+      <div style={{
+        position: "fixed", top: hoverRect.y - 10, left, width: W, transform: "translateY(-100%)",
+        zIndex: 1000, background: "#fff", color: "#0F172A", borderRadius: 12, padding: "10px 12px",
+        textAlign: "left", boxShadow: "0 10px 30px rgba(15,23,42,.22)", pointerEvents: "none", border: "1px solid #E2E8F0",
+      }}>
+        <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Tooth {hoverTooth}</div>
+        {[
+          { label: "Exam", items: tc.card.exam.map(x => ({ t: x, s: undefined as string | undefined })), color: "#B45309", bg: "#FEF3C7" },
+          { label: "Diagnosis", items: tc.card.diag.map(x => ({ t: x, s: undefined as string | undefined })), color: "#9A3412", bg: "#FFEDD5" },
+          { label: "Treatment", items: tc.card.tx.map(x => ({ t: x.name, s: x.status })), color: "#0E7C7B", bg: "#E8F5F5" },
+        ].map(sec => sec.items.length > 0 && (
+          <div key={sec.label} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: "#94A3B8", marginBottom: 3 }}>{sec.label}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              {sec.items.map((it: any, k: number) => (
+                <span key={k} style={{ background: sec.bg, color: sec.color, borderRadius: 6, padding: "2px 7px", fontSize: 10.5, fontWeight: 700 }}>
+                  {it.s === "completed" ? "✓ " : it.s === "in_progress" ? "⏳ " : ""}{it.t}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  })();
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 15, color: "#0F172A" }}>🦷 Dental Chart & Treatment Plans</div>
+        <div style={{ fontWeight: 800, fontSize: 15, color: "#0F172A" }}>{title}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {onChildChange && (
             <div style={{ display: "flex", gap: 4, background: "#F1F5F9", borderRadius: 10, padding: 3 }}>
@@ -332,6 +472,13 @@ export function ToothWidget({
               ))}
             </div>
           )}
+          <div style={{ display: "flex", gap: 4, background: "#F1F5F9", borderRadius: 10, padding: 3 }}>
+            {[["Arch", true], ["Grid", false]].map(([l, v]) => (
+              <button key={String(l)} type="button" onClick={() => setArch(v as boolean)}
+                style={{ border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontWeight: 800, fontSize: 12,
+                  background: arch === v ? accent : "transparent", color: arch === v ? "#fff" : "#64748B", fontFamily: "inherit" }}>{l}</button>
+            ))}
+          </div>
           {onMultiSelectChange && (
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#475569", cursor: "pointer" }}>
               Multi select
@@ -355,94 +502,45 @@ export function ToothWidget({
         <button type="button" onClick={clearSelection} style={{ border: "1.5px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit", marginLeft: "auto" }}>Clear Selection</button>
       </div>
 
-      {showUpper && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ textAlign: "center", fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: 1, marginBottom: 6 }}>UPPER</div>
-          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
-            {[Q[0], Q[1]].map((quad, qi) => (
-              <div key={qi} style={{ display: "flex", gap: 4 }}>
-                {quad.map(n => {
-                  const tc = toothColor(n);
-                  const isSel = selected.includes(n);
-                  const inRegion = visibleSet.has(n);
-                  const dimmed = !inRegion && region !== "full" && !isSel;
-                  // Visual layering: selected > in-region highlight > issue color > default
-                  const ringColor = isSel ? accent : (inRegion && region !== "full" ? accent : tc.border);
-                  const ringWidth = isSel ? "2.5px" : (inRegion && region !== "full" ? "2px" : "2px");
-                  const bgFill = isSel ? `${accent}1F` : (inRegion && region !== "full" ? `${accent}10` : tc.bg);
-                  return (
-                    <button key={n} type="button" onClick={() => pickTooth(n)}
-                      style={{
-                        width: 64, minHeight: 96, borderRadius: 12, cursor: "pointer", fontFamily: "inherit", position: "relative",
-                        border: `${ringWidth} solid ${ringColor}`,
-                        background: bgFill,
-                        boxShadow: isSel ? `0 4px 14px ${accent}33` : (inRegion && region !== "full" ? `0 2px 8px ${accent}22` : "none"),
-                        padding: "4px 2px 6px",
-                        opacity: dimmed ? 0.38 : 1,
-                        filter: dimmed ? "saturate(0.4)" : "none",
-                        transition: "opacity .2s, filter .2s, border-color .15s, background .15s, box-shadow .15s",
-                      }}>
-                      <ToothSvg variant={toothVariant(n)} selected={isSel || (inRegion && region !== "full")} border={ringColor} bg={bgFill} />
-                      <ToothStatusMarker kind={tc.kind} variant={toothVariant(n)} />
-                      <div style={{ fontWeight: 900, fontSize: 13, color: tc.done ? "#065F46" : (isSel ? accent : "#0F172A"), marginTop: 2 }}>{n}</div>
-                      {tc.label && <div style={{ fontSize: 8.5, fontWeight: 800, color: tc.done ? "#059669" : (tc.prog ? "#D97706" : accent), marginTop: 1, lineHeight: 1.1, maxWidth: 58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={tc.label}>{tc.label}</div>}
-                      {isSel && <div style={{ position: "absolute", bottom: 4, left: "50%", transform: "translateX(-50%)", width: 16, height: 16, borderRadius: "50%", background: accent, color: "#fff", fontSize: 10, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</div>}
-                      {tc.hasIssue && <span style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#EF4444" }} />}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <style>{`
+        .tw-tooth-btn:hover { transform: translateY(-3px) scale(1.05); z-index: 2; }
+        @keyframes tw-pulse-ring {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(14,124,123,.45); }
+          50% { box-shadow: 0 0 0 10px rgba(14,124,123,0); }
+        }
+        .tw-tooth-pulse { animation: tw-pulse-ring 1.2s ease infinite; }
+      `}</style>
 
-      {showLower && (
-        <div>
-          <div style={{ textAlign: "center", fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: 1, marginBottom: 6 }}>LOWER</div>
-          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
-            {[Q[2], Q[3]].map((quad, qi) => (
-              <div key={qi} style={{ display: "flex", gap: 4 }}>
-                {quad.map(n => {
-                  const tc = toothColor(n);
-                  const isSel = selected.includes(n);
-                  const inRegion = visibleSet.has(n);
-                  const dimmed = !inRegion && region !== "full" && !isSel;
-                  const ringColor = isSel ? accent : (inRegion && region !== "full" ? accent : tc.border);
-                  const ringWidth = isSel ? "2.5px" : (inRegion && region !== "full" ? "2px" : "2px");
-                  const bgFill = isSel ? `${accent}1F` : (inRegion && region !== "full" ? `${accent}10` : tc.bg);
-                  return (
-                    <button key={n} type="button" onClick={() => pickTooth(n)}
-                      style={{
-                        width: 64, minHeight: 96, borderRadius: 12, cursor: "pointer", fontFamily: "inherit", position: "relative",
-                        border: `${ringWidth} solid ${ringColor}`,
-                        background: bgFill,
-                        boxShadow: isSel ? `0 4px 14px ${accent}33` : (inRegion && region !== "full" ? `0 2px 8px ${accent}22` : "none"),
-                        padding: "4px 2px 6px",
-                        opacity: dimmed ? 0.38 : 1,
-                        filter: dimmed ? "saturate(0.4)" : "none",
-                        transition: "opacity .2s, filter .2s, border-color .15s, background .15s, box-shadow .15s",
-                      }}>
-                      <ToothSvg variant={toothVariant(n)} selected={isSel || (inRegion && region !== "full")} border={ringColor} bg={bgFill} />
-                      <ToothStatusMarker kind={tc.kind} variant={toothVariant(n)} />
-                      <div style={{ fontWeight: 900, fontSize: 13, color: tc.done ? "#065F46" : (isSel ? accent : "#0F172A"), marginTop: 2 }}>{n}</div>
-                      {tc.label && <div style={{ fontSize: 8.5, fontWeight: 800, color: tc.done ? "#059669" : (tc.prog ? "#D97706" : accent), marginTop: 1, lineHeight: 1.1, maxWidth: 58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={tc.label}>{tc.label}</div>}
-                      {isSel && <div style={{ position: "absolute", bottom: 4, left: "50%", transform: "translateX(-50%)", width: 16, height: 16, borderRadius: "50%", background: accent, color: "#fff", fontSize: 10, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</div>}
-                      {tc.hasIssue && <span style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#EF4444" }} />}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+      {showUpper && (() => {
+        const row = [...Q[0], ...Q[1]];
+        return (
+          <div style={{ marginBottom: arch ? 4 : 10, paddingBottom: arch ? 28 : 0, overflowX: "auto" }}>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: 1, marginBottom: 6 }}>UPPER</div>
+            <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: arch ? "nowrap" : "wrap", minWidth: arch ? 0 : undefined }}>
+              {row.map((n, i) => renderTooth(n, i, row.length, true))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {showLower && (() => {
+        const row = [...Q[2], ...Q[3]];
+        return (
+          <div style={{ paddingTop: arch ? 28 : 0, overflowX: "auto" }}>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: 1, marginBottom: 6 }}>LOWER</div>
+            <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: arch ? "nowrap" : "wrap" }}>
+              {row.map((n, i) => renderTooth(n, i, row.length, false))}
+            </div>
+          </div>
+        );
+      })()}
 
       {selected.length > 0 && (
         <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: accent }}>
           Selected: {selected.join(", ")} ({selected.length} tooth{selected.length !== 1 ? "s" : ""})
         </div>
       )}
+      {hoverCard}
     </div>
   );
 }

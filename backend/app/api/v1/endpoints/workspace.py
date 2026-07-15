@@ -53,6 +53,7 @@ class PlanItemIn(BaseModel):
     clinic_id: UUID
     examination_summary: Optional[str] = None
     diagnosis: Optional[str] = None
+    price_confirmed: bool = False
 class PlanItemPatch(BaseModel):
     treatment_name: Optional[str] = None
     teeth: Optional[List[int]] = None
@@ -64,6 +65,7 @@ class PlanItemPatch(BaseModel):
     status: Optional[str] = None
     examination_summary: Optional[str] = None
     diagnosis: Optional[str] = None
+    price_confirmed: Optional[bool] = None
 class CustomTreatmentIn(BaseModel):
     name: str; default_cost: float = 0; is_tooth_based: bool = False
 class WorkStepIn(BaseModel):
@@ -183,7 +185,8 @@ def _item_dict(r) -> dict:
             "lab_status": r.get("lab_status"),
             "lab_order_id": str(r["lab_order_id"]) if r.get("lab_order_id") else None,
             "examination_summary": r.get("examination_summary") or None,
-            "diagnosis": r.get("diagnosis") or None}
+            "diagnosis": r.get("diagnosis") or None,
+            "price_confirmed": bool(r.get("price_confirmed")) if r.get("price_confirmed") is not None else False}
 
 # ════════════════════════ FULL WORKSPACE ═══════════════════════
 @router.get("/{patient_id}/full")
@@ -193,6 +196,18 @@ async def workspace_full(patient_id: UUID, clinic_id: UUID, apt_id: Optional[UUI
     p = (await db.execute(sql_text("""SELECT id,name,age,gender,phone,existing_illnesses,chairside_notes,total_visits,created_at
         FROM patients WHERE id=:p"""), {"p": pid})).mappings().one_or_none()
     if not p: raise HTTPException(404, "Patient not found")
+
+    # Health alerts — always-visible safety strip in the workspace header
+    health = (await db.execute(sql_text("""SELECT diabetes,hypertension,heart_disease,thyroid,asthma,
+        kidney_disease,liver_disease,pregnant,blood_thinner,allergies
+        FROM patient_health WHERE patient_id=:p"""), {"p": pid})).mappings().one_or_none()
+    health_alerts: list[str] = []
+    if health:
+        for flag, label in (("diabetes", "Diabetic"), ("hypertension", "High BP"), ("heart_disease", "Heart disease"),
+                            ("thyroid", "Thyroid"), ("asthma", "Asthma"), ("kidney_disease", "Kidney disease"),
+                            ("liver_disease", "Liver disease"), ("pregnant", "Pregnant"), ("blood_thinner", "Blood thinners")):
+            if health[flag]: health_alerts.append(label)
+        if (health["allergies"] or "").strip(): health_alerts.append(f"Allergy: {health['allergies'].strip()}")
 
     apt = None
     if apt_id:
@@ -345,7 +360,8 @@ async def workspace_full(patient_id: UUID, clinic_id: UUID, apt_id: Optional[UUI
     return {
         "patient": {"id": pid, "name": p["name"], "age": p["age"], "gender": p["gender"], "phone": p["phone"],
                     "existing_illnesses": p["existing_illnesses"] or [], "chairside_notes": p["chairside_notes"],
-                    "total_visits": p["total_visits"] or 0, "patient_type": patient_type},
+                    "total_visits": p["total_visits"] or 0, "patient_type": patient_type,
+                    "health_alerts": health_alerts},
         "appointment": ({"id": str(apt["id"]), "chief_complaints": apt["chief_complaints"] or [],
                          "appointment_type": apt["appointment_type"] or apt["reason"], "workflow_status": apt["ws"],
                          "contact_status": apt["contact_status"],
@@ -435,18 +451,25 @@ async def workspace_full(patient_id: UUID, clinic_id: UUID, apt_id: Optional[UUI
 async def add_plan_item(patient_id: UUID, body: PlanItemIn, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     pid = str(patient_id)
     plan_id = await _active_plan(db, pid, str(body.clinic_id), str(staff["staff_id"]), create=True)
+    # Specialists record clinical work only — their items go in at ₹0,
+    # unconfirmed, for the owner doctor to price.
+    if staff.get("role") == "specialist":
+        body.suggested_rate = 0
+        body.discount = 0
+        body.price_confirmed = False
     # The catalog suggestion is the treatment charge. Keep a single source of
     # truth so alternate clients cannot silently create a different doctor rate.
     doctor_rate = max(float(body.suggested_rate or 0), 0)
     final = max(doctor_rate - body.discount, 0)
+    confirmed = bool(body.price_confirmed) and final > 0
     row = (await db.execute(sql_text("""INSERT INTO treatment_plan_items
-        (plan_id,procedure_catalog_id,procedure_name,teeth,area_label,suggested_rate,doctor_rate,discount,final_amount,notes,status,tooth_number,examination_summary,diagnosis)
-        VALUES(:pl,:pc,:n,CAST(:t AS JSONB),:al,:sr,:dr,:d,:f,:no,'advised',:tn,:es,:dx) RETURNING id"""),
+        (plan_id,procedure_catalog_id,procedure_name,teeth,area_label,suggested_rate,doctor_rate,discount,final_amount,notes,status,tooth_number,examination_summary,diagnosis,price_confirmed)
+        VALUES(:pl,:pc,:n,CAST(:t AS JSONB),:al,:sr,:dr,:d,:f,:no,'advised',:tn,:es,:dx,:pcf) RETURNING id"""),
         {"pl": plan_id, "pc": str(body.procedure_id) if body.procedure_id else None, "n": body.treatment_name,
          "t": json.dumps(body.teeth), "al": body.area_label, "sr": body.suggested_rate, "dr": doctor_rate,
          "d": body.discount, "f": final, "no": body.notes,
          "tn": str(body.teeth[0]) if body.teeth else None,
-         "es": body.examination_summary, "dx": body.diagnosis})).mappings().one()
+         "es": body.examination_summary, "dx": body.diagnosis, "pcf": confirmed})).mappings().one()
     item_id = str(row["id"])
     await _sync_teeth(db, item_id, pid, plan_id, body.treatment_name, body.teeth)          # → Tooth Chart
     await _log_revision(db, plan_id, f"Added {body.treatment_name} {_teeth_label(body.teeth, body.area_label)} — ₹{final:,.0f}",
@@ -466,25 +489,42 @@ async def edit_plan_item(item_id: UUID, body: PlanItemPatch, db: AsyncSession = 
     cur = (await db.execute(sql_text("""SELECT i.*, p.patient_id FROM treatment_plan_items i
         JOIN treatment_plans p ON p.id=i.plan_id WHERE i.id=:i"""), {"i": str(item_id)})).mappings().one_or_none()
     if not cur: raise HTTPException(404, "Item not found")
+    # Specialists never touch money — clinical fields (status, notes) only.
+    if staff.get("role") == "specialist" and any(
+        f is not None for f in (body.doctor_rate, body.suggested_rate, body.discount, body.price_confirmed)
+    ):
+        raise HTTPException(403, "Specialists cannot change rates, discounts, or price confirmation")
     name = body.treatment_name if body.treatment_name is not None else cur["procedure_name"]
     teeth = body.teeth if body.teeth is not None else (cur["teeth"] or [])
     area = body.area_label if body.area_label is not None else cur["area_label"]
-    sr = body.suggested_rate if body.suggested_rate is not None else float(cur["suggested_rate"] or 0)
-    # doctor_rate always follows suggested_rate; discount remains a separate,
-    # auditable adjustment.
-    dr = sr
+    if body.doctor_rate is not None:
+        dr = max(float(body.doctor_rate), 0)
+        sr = max(float(body.suggested_rate), 0) if body.suggested_rate is not None else dr
+    elif body.suggested_rate is not None:
+        sr = max(float(body.suggested_rate), 0)
+        dr = sr
+    else:
+        sr = float(cur["suggested_rate"] or 0)
+        dr = float(cur["doctor_rate"] or sr)
     disc = body.discount if body.discount is not None else float(cur["discount"] or 0)
     status = body.status if body.status is not None else cur["status"]
     notes = body.notes if body.notes is not None else cur["notes"]
     exam = body.examination_summary if body.examination_summary is not None else cur.get("examination_summary")
     diag = body.diagnosis if body.diagnosis is not None else cur.get("diagnosis")
     final = max(dr - disc, 0)
+    rate_changed = dr != float(cur["doctor_rate"] or 0) or disc != float(cur["discount"] or 0)
+    if body.price_confirmed is not None:
+        price_confirmed = bool(body.price_confirmed) and final > 0
+    elif rate_changed:
+        price_confirmed = False
+    else:
+        price_confirmed = bool(cur.get("price_confirmed")) and final > 0
     await db.execute(sql_text("""UPDATE treatment_plan_items SET procedure_name=:n,teeth=CAST(:t AS JSONB),area_label=:al,
         suggested_rate=:sr,doctor_rate=:dr,discount=:d,final_amount=:f,notes=:no,status=:st,
-        tooth_number=:tn,examination_summary=:es,diagnosis=:dx,updated_at=NOW() WHERE id=:i"""),
+        tooth_number=:tn,examination_summary=:es,diagnosis=:dx,price_confirmed=:pcf,updated_at=NOW() WHERE id=:i"""),
         {"n": name, "t": json.dumps(teeth), "al": area, "sr": sr, "dr": dr, "d": disc, "f": final,
          "no": notes, "st": status, "tn": str(teeth[0]) if teeth else None, "i": str(item_id),
-         "es": exam, "dx": diag})
+         "es": exam, "dx": diag, "pcf": price_confirmed})
     await _sync_teeth(db, str(item_id), str(cur["patient_id"]), str(cur["plan_id"]), name, teeth, status)
     changes = []
     if body.discount is not None and body.discount != float(cur["discount"] or 0): changes.append(f"discount ₹{disc:,.0f}")

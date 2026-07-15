@@ -90,6 +90,7 @@ export default function SendToLabModal({
   const [sentToday, setSentToday] = useState(true);
   const [notes, setNotes] = useState(existingOrder?.notes || "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const asToothStrings = (list?: Array<string | number>, single?: string) =>
     Array.from(new Set((Array.isArray(list) ? list : []).map(String).concat(single ? [String(single)] : []).filter(Boolean)));
@@ -174,14 +175,15 @@ export default function SendToLabModal({
   };
 
   const submit = async () => {
-    if (!workType.trim()) { alert("Select or enter work type"); return; }
-    if (teeth.length === 0) { alert("Select at least one tooth"); return; }
+    if (!workType.trim()) { setError("Select or enter work type"); return; }
+    if (teeth.length === 0) { setError("Select at least one tooth"); return; }
     const finalShade = shade === "__custom__" ? customShade.trim().toUpperCase() : (shade || null);
     const nurseFieldsComplete = !!(vendorId && finalShade && expectedDate);
     if (isNurseRole && !nurseFieldsComplete) {
-      alert("Nurse must fill vendor, shade, and expected date before sending to lab.");
+      setError("Fill vendor, shade, and expected date before sending to lab");
       return;
     }
+    setError("");
     setSaving(true);
     try {
       const readyToSend = nurseFieldsComplete && sentToday;
@@ -219,7 +221,7 @@ export default function SendToLabModal({
       onSaved?.(orderId);
       onClose();
     } catch (e: any) {
-      alert(`Could not create lab order: ${e?.message || e}`);
+      setError(`Could not create lab order: ${e?.message || e}`);
     } finally {
       setSaving(false);
     }
@@ -364,9 +366,14 @@ export default function SendToLabModal({
         {/* Footer */}
         <div style={{
           padding: "14px 22px", borderTop: `1.5px solid ${LINE}`,
-          display: "flex", gap: 10, justifyContent: "flex-end",
+          display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center",
           background: SOFT, borderRadius: "0 0 18px 18px",
         }}>
+          {error && (
+            <span style={{ marginRight: "auto", background: "#FEE2E2", color: "#991B1B", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 700 }}>
+              ⚠ {error}
+            </span>
+          )}
           <button onClick={onClose} style={{
             border: `1.5px solid ${LINE}`, background: "#fff", color: MUTE,
             borderRadius: 12, padding: "11px 20px", fontWeight: 700, fontSize: 13.5, cursor: "pointer",

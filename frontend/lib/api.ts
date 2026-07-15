@@ -332,6 +332,16 @@ export async function listPatientUploads(patientId: string) {
   return res.json();
 }
 
+/** Mint a 7-day public link for one upload — for WhatsApping X-rays to the patient */
+export async function uploadShareLink(uploadId: string | number) {
+  const res = await fetch(`/api/uploads/${uploadId}/share-link`, { headers: authHeaders() });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<{ url: string; file_name: string; expires_at: number }>;
+}
+
 export async function uploadPatientFile(patientId: string, form: FormData) {
   const res = await fetch(`/api/uploads/patient/${patientId}`, {
     method: "POST",
@@ -583,6 +593,13 @@ export async function labDeleteVendor(id: string) {
 
 // — Work types —
 // — Orders —
+export async function labListOrders(opts: { clinicId?: string; status?: string; limit?: number } = {}) {
+  const q = new URLSearchParams();
+  if (opts.clinicId) q.set("clinic_id", opts.clinicId);
+  if (opts.status) q.set("status", opts.status);
+  q.set("limit", String(opts.limit || 100));
+  return apiFetch(`${LAB}/orders?${q}`);
+}
 export async function labCreateOrder(data: any) {
   return apiFetch(`${LAB}/orders`, { method: "POST", body: JSON.stringify(data) });
 }
@@ -683,6 +700,10 @@ export async function pdbFull(patientId: string) {
 
 export async function pdbTimeline(patientId: string, limit = 100) {
   return apiFetch(`${PDB}/${patientId}/timeline?limit=${limit}`);
+}
+
+export async function pdbAppointments(patientId: string, limit = 30) {
+  return apiFetch(`${PDB}/${patientId}/appointments?limit=${limit}`);
 }
 
 export async function pdbWorkspaceSnapshot(patientId: string) {

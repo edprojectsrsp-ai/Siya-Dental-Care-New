@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import * as api from "@/lib/api";
 import PrescriptionStudio from "@/components/PrescriptionStudio";
+import { MedicineAutocomplete, MedicineRowPicker } from "@/components/MedicineAutocomplete";
 
 const INK = "#0F172A", MUTE = "#64748B", LINE = "#E2E8F0", SOFT = "#F8FAFC";
 const SHADOW = "0 1px 2px rgba(15,23,42,.05), 0 4px 14px rgba(15,23,42,.06)";
@@ -98,11 +99,28 @@ export default function RxTab({
 
   const addMedRow = () => setRxMeds([...rxMeds, { name: "", strength: "", dose: "1 tab", frequency: "1-0-1", duration: "5 days", instructions: "" }]);
   const setMed = (i: number, k: string, v: string) => { const n = [...rxMeds]; n[i] = { ...n[i], [k]: v }; setRxMeds(n); };
-  const pickMed = (i: number, name: string) => {
-    const m = medCatalog.find((x: any) => x.name === name);
-    if (m) { const n = [...rxMeds]; n[i] = { name: m.name, strength: m.default_strength || "", dose: m.default_dose || "1 tab", frequency: m.default_frequency || "1-0-1", duration: m.default_duration || "5 days", instructions: m.instructions || "" }; setRxMeds(n); }
-    else { setMed(i, "name", name); if (name.trim().length > 2) api.addMedicine({ name: name.trim(), category: "Custom", added_from: "workspace" }).catch(() => {}); }
+  const applyMedPick = (i: number, name: string, med?: any) => {
+    if (!med) { setMed(i, "name", name); return; }
+    const m = med || medCatalog.find((x: any) => (x.name || "").toLowerCase() === name.toLowerCase());
+    const n = [...rxMeds];
+    if (m) {
+      n[i] = {
+        name: m.name, strength: m.default_strength || m.strength || "",
+        dose: m.default_dose || m.common_dose || "1 tab",
+        frequency: m.default_frequency || m.common_frequency || "1-0-1",
+        duration: m.default_duration || m.common_duration || "5 days",
+        instructions: m.instructions || "",
+      };
+    } else {
+      n[i] = { ...n[i], name };
+      if (name.trim().length > 2) api.addMedicine({ name: name.trim(), category: "Custom", added_from: "workspace" }).catch(() => {});
+    }
+    setRxMeds(n);
     activeItems.forEach((item: any) => { if (item.treatment_name) api.wsRecordClinicalLink("treatment_medicine", item.treatment_name, name).catch(() => {}); });
+  };
+
+  const pickMedFromCatalog = (med: any) => {
+    addSuggestedMed(med.name);
   };
 
   const clinicalExamination = (W.tooth_examinations || []).map((x: any) => `Tooth ${x.tooth}: ${x.finding}${x.notes ? ` (${x.notes})` : ""}`).join("; ");
@@ -231,6 +249,39 @@ export default function RxTab({
     await sendRxById(rxId);
   };
 
+  // ── WhatsApp X-ray / RVG images: signed 7-day public links, no login needed ──
+  const [xrays, setXrays] = useState<any[]>([]);
+  const [xraySel, setXraySel] = useState<Set<string>>(new Set());
+  const [xrayBusy, setXrayBusy] = useState(false);
+  useEffect(() => {
+    api.listPatientUploads(W.patient.id).then((rows: any[]) => {
+      setXrays((rows || []).filter((u: any) => u.file_type === "image" || (u.file_kind || "").match(/rvg|xray|opg/i)));
+    }).catch(() => {});
+  }, [W.patient.id]);
+
+  const waXrays = async () => {
+    const digits = (W.patient.phone || "").replace(/\D/g, "");
+    const to = digits.length === 10 ? "91" + digits : digits;
+    if (!to) { show("No patient phone number"); return; }
+    const chosen = xrays.filter(u => xraySel.has(String(u.id)));
+    if (!chosen.length) { show("Tick the X-rays to send first"); return; }
+    setXrayBusy(true);
+    try {
+      const links = await Promise.all(chosen.map(u => api.uploadShareLink(u.id)));
+      const lines = [
+        `🦷 ${clinicName} — your X-ray / scan images`,
+        `${W.patient.name}`,
+        "",
+        ...links.map((l, i) => `${i + 1}. ${chosen[i].caption || chosen[i].file_name}${chosen[i].tooth_number ? ` (tooth ${chosen[i].tooth_number})` : ""}\n${l.url}`),
+        "",
+        "Links work for 7 days.",
+      ];
+      window.open(`https://wa.me/${to}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
+      setXraySel(new Set());
+    } catch (e: any) { show("Error: " + e.message); }
+    finally { setXrayBusy(false); }
+  };
+
   const waCombined = () => {
     const digits = (W.patient.phone || "").replace(/\D/g, "");
     const to = digits.length === 10 ? "91" + digits : digits;
@@ -301,10 +352,25 @@ export default function RxTab({
                 })}
               </div>
             )}
+            <div style={{ marginBottom: 12 }}>
+              <MedicineAutocomplete
+                clinicId={clinicId}
+                accent={A}
+                placeholder="Search & add medicine…"
+                onSelect={pickMedFromCatalog}
+              />
+            </div>
             {rxMeds.map((m: any, i: number) => (
-              <div key={i} style={{ background: SOFT, borderRadius: 12, padding: 10, marginBottom: 7 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "3fr 1.4fr auto", gap: 6 }}>
-                  <input list="ws-meds" value={m.name} onChange={e => pickMed(i, e.target.value)} placeholder="Medicine name" style={{ ...inp, fontWeight: 800 }} />
+              <div key={i} style={{ background: SOFT, borderRadius: 14, padding: 12, marginBottom: 8, border: `1px solid ${LINE}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "3fr 1.4fr auto", gap: 8 }}>
+                  <MedicineRowPicker
+                    value={m.name}
+                    clinicId={clinicId}
+                    medCatalog={medCatalog}
+                    accent={A}
+                    placeholder="Medicine name"
+                    onChange={(name, med) => applyMedPick(i, name, med)}
+                  />
                   <input value={m.strength || ""} onChange={e => setMed(i, "strength", e.target.value)} placeholder="Strength" style={inp} />
                   <button onClick={() => setRxMeds(rxMeds.filter((_: any, x: number) => x !== i))} style={{ ...iconBtn("#EF4444"), width: 36, height: "auto" }}>🗑</button>
                 </div>
@@ -316,8 +382,7 @@ export default function RxTab({
                 </div>
               </div>
             ))}
-            <datalist id="ws-meds">{medCatalog.map((m: any) => <option key={m.id || m.name} value={m.name} />)}</datalist>
-            <button onClick={addMedRow} style={{ ...btn("#6366F1"), marginTop: 4 }}>＋ Add Medicine</button>
+            <button onClick={addMedRow} style={{ ...btn("#6366F1"), marginTop: 4 }}>＋ Add blank row</button>
           </div>
 
           <div style={card}>
@@ -376,6 +441,34 @@ export default function RxTab({
               Finalise opens the editor to review &amp; save. View Full Record shows all visits combined till date.
             </div>
           </div>
+
+          {xrays.length > 0 && (
+            <div style={card}>
+              <SectionTitle>🩻 X-rays / RVG — send to patient</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 6, maxHeight: 220, overflowY: "auto" as const }}>
+                {xrays.map((u: any) => {
+                  const id = String(u.id);
+                  const on = xraySel.has(id);
+                  return (
+                    <label key={id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 10, background: on ? "#ECFDF5" : SOFT, border: `1.5px solid ${on ? "#A7F3D0" : LINE}`, cursor: "pointer" }}>
+                      <input type="checkbox" checked={on} style={{ accentColor: "#059669" }}
+                        onChange={() => setXraySel(prev => { const s = new Set(prev); on ? s.delete(id) : s.add(id); return s; })} />
+                      {u.file_type === "image" && <img src={u.file_url} alt="" style={{ width: 34, height: 34, borderRadius: 6, objectFit: "cover" as const, border: `1px solid ${LINE}` }} />}
+                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                        {u.caption || u.file_name}{u.tooth_number ? ` · tooth ${u.tooth_number}` : ""}
+                      </span>
+                      <span style={{ fontSize: 10.5, color: MUTE, whiteSpace: "nowrap" as const }}>{dmy(u.uploaded_at)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <button disabled={xrayBusy || xraySel.size === 0} onClick={waXrays}
+                style={{ ...btn("#25D366"), width: "100%", marginTop: 10, opacity: xrayBusy || xraySel.size === 0 ? .6 : 1 }}>
+                {xrayBusy ? "Preparing links…" : `📲 WhatsApp ${xraySel.size || ""} X-ray${xraySel.size === 1 ? "" : "s"} to patient`}
+              </button>
+              <div style={{ fontSize: 10.5, color: MUTE, marginTop: 6 }}>Patient gets secure links that work for 7 days — no login needed.</div>
+            </div>
+          )}
 
           <div style={card}>
             <SectionTitle>🩺 Visit History</SectionTitle>

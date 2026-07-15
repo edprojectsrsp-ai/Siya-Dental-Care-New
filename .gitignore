@@ -9,6 +9,7 @@ venv/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 
 # Environment & secrets
 .env
@@ -29,6 +30,8 @@ Thumbs.db
 
 # Handover archives (regenerate locally)
 Siya_Dental_Handover_*.zip
+clinic_resume_bundle_*.zip
+resume_bundle_*/
 
 # Reference-only material (contains an embedded git repo; not part of the app)
 _ref_clinical_site/

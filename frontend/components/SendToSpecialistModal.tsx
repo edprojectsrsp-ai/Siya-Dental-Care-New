@@ -62,6 +62,7 @@ export default function SendToSpecialistModal({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<any>(null);   // shows WA link after save
+  const [error, setError] = useState("");            // inline error — no alert() jolts
 
   // Load specialists
   useEffect(() => {
@@ -82,8 +83,9 @@ export default function SendToSpecialistModal({
   };
 
   const submit = async () => {
-    if (!specialistId) { alert("Pick a specialist"); return; }
-    if (!appointmentId) { alert("This referral must be linked to an active appointment"); return; }
+    if (!specialistId) { setError("Pick a specialist first"); return; }
+    if (!appointmentId) { setError("This referral must be linked to an active appointment"); return; }
+    setError("");
     setSaving(true);
     try {
       // 1. Upsert the rate tier (so it appears in dropdown next time + sets the rate context)
@@ -115,7 +117,7 @@ export default function SendToSpecialistModal({
       setResult(res);
       onSaved?.({ specialist_id: specialistId, whatsapp_link: res.whatsapp_link });
     } catch (e: any) {
-      alert(`Could not assign specialist: ${e?.message || e}`);
+      setError(`Could not assign specialist: ${e?.message || e}`);
     } finally {
       setSaving(false);
     }
@@ -239,18 +241,9 @@ export default function SendToSpecialistModal({
                 );
               }}
               addNew={async (name) => {
-                // inline-add: prompt for rate
-                const rate = prompt(`Enter rate amount for "${name}" (₹):`, rateAmount || "");
-                if (!rate) throw new Error("Rate required");
-                const r = await api.upsertSpecialistTier({
-                  clinic_id: clinicId,
-                  specialist_id: specialistId,
-                  tier_name: tierName,
-                  treatment_key: name.toLowerCase().replace(/\s+/g, "_").replace(/[^\w]/g, "_").slice(0, 80),
-                  rate_amount: parseFloat(rate),
-                  label: name,
-                });
-                setRateAmount(rate);
+                // New treatment name accepted as-is — set its rate in the Rate ₹
+                // field below; submit() upserts the tier with that rate.
+                if (!rateAmount) setError(`Set the Rate ₹ below for "${name}" before sending`);
                 return name;
               }}
               placeholder="e.g. RCT — Molar (start typing or add new)"
@@ -291,9 +284,14 @@ export default function SendToSpecialistModal({
         {/* Footer */}
         <div style={{
           padding: "14px 22px", borderTop: `1.5px solid ${LINE}`,
-          display: "flex", gap: 10, justifyContent: "flex-end",
+          display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center",
           background: SOFT, borderRadius: "0 0 18px 18px",
         }}>
+          {error && (
+            <span style={{ marginRight: "auto", background: "#FEE2E2", color: "#991B1B", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 700 }}>
+              ⚠ {error}
+            </span>
+          )}
           <button onClick={onClose} style={{
             border: `1.5px solid ${LINE}`, background: "#fff", color: MUTE,
             borderRadius: 12, padding: "11px 20px", fontWeight: 700, fontSize: 13.5, cursor: "pointer",

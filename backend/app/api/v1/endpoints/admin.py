@@ -11,6 +11,7 @@ from sqlalchemy import text as sql_text
 from pathlib import Path
 from app.core.database import get_db
 from app.core.security import get_current_staff
+from app.core.upload_guard import safe_ext, check_size
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 public_router = APIRouter(prefix="/site", tags=["Public Site"])
@@ -158,9 +159,11 @@ async def upload_gallery_image(
     db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)
 ):
     _require_admin(staff)
-    safe_name = f"{secrets.token_hex(8)}_{file.filename}".replace(" ", "_")
-    dest = GALLERY_DIR / safe_name
+    ext = safe_ext(file.filename)
     content = await file.read()
+    check_size(content)
+    safe_name = f"{secrets.token_hex(8)}{ext}"
+    dest = GALLERY_DIR / safe_name
     dest.write_bytes(content)
     image_url = f"/api/site/gallery-image/{safe_name}"
     next_idx = (await db.execute(sql_text("SELECT COALESCE(MAX(order_idx),0)+1 AS n FROM gallery_images WHERE category=:c"),
@@ -253,6 +256,10 @@ async def public_content(db: AsyncSession = Depends(get_db)):
 @public_router.get("/gallery-image/{filename}")
 async def serve_gallery_image(filename: str):
     from fastapi.responses import FileResponse
-    path = GALLERY_DIR / filename
-    if not path.exists(): raise HTTPException(404, "Image not found")
+    # Reject any directory components (../, ..\) — serve only files directly in GALLERY_DIR
+    if "/" in filename or "\\" in filename or filename in ("", ".", ".."):
+        raise HTTPException(404, "Image not found")
+    path = (GALLERY_DIR / filename).resolve()
+    if path.parent != GALLERY_DIR.resolve() or not path.exists():
+        raise HTTPException(404, "Image not found")
     return FileResponse(path)

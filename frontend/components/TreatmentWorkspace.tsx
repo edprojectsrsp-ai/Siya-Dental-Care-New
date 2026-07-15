@@ -15,6 +15,10 @@ import { LabGuardBanner } from "@/components/LabGuardBanner";
 import type { ChartRegion } from "@/components/ToothWidget";
 import { Save, ArrowLeft, CheckCircle, DollarSign } from "lucide-react";
 import TreatmentPlanCards from "@/components/TreatmentPlanCards";
+import { TreatmentPlanTab } from "@/components/clinical/TreatmentPlanTab";
+import { PaymentsTab } from "@/components/clinical/PaymentsTab";
+import { getPlanBillingBlockers, isPlanBillingReady, planBillingGateMessage } from "@/components/clinical/planBillingGate";
+import ToothSummaryGrid from "@/components/clinical/ToothSummaryGrid";
 import SendToLabModal from "@/components/SendToLabModal";
 import SendToSpecialistModal from "@/components/SendToSpecialistModal";
 import { DoctorCoordinationTab } from "@/components/DoctorCoordinationTab";
@@ -31,6 +35,67 @@ const CHILD_Q = [[55,54,53,52,51],[61,62,63,64,65],[85,84,83,82,81],[71,72,73,74
 const fmt = (n: number) => `₹${(n || 0).toLocaleString("en-IN")}`;
 const dmy = (s?: string | null) => s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
+// ─── Care status: shared status → pill mapping (lab + specialist) ───
+const LAB_PILL: Record<string, { label: string; color: string }> = {
+  pending:  { label: "preparing to send", color: "#F59E0B" },
+  sent:     { label: "at lab",            color: "#3B82F6" },
+  received: { label: "ready — book fitting", color: "#059669" },
+};
+function labPillInfo(o: any) {
+  const base = LAB_PILL[o.status];
+  if (!base) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = o.expected_date && o.expected_date < today && ["pending", "sent"].includes(o.status);
+  const teeth = (o.teeth?.length ? o.teeth : o.linked_treatment_teeth) || [];
+  const title = `${o.work_type || "Lab work"}${teeth.length ? ` ${teeth.join(",")}` : ""}`;
+  const due = o.expected_date ? (overdue ? `overdue since ${dmy(o.expected_date)}` : `due ${dmy(o.expected_date)}`) : "";
+  return { title, label: overdue ? "OVERDUE" : base.label, due, color: overdue ? "#DC2626" : base.color, overdue };
+}
+function specPillInfo(s: any) {
+  const status = s.specialist_session_status || s.session_status || "pending";
+  if (status === "verified") return null;
+  const awaiting = status === "closed" || status === "done";
+  return {
+    title: `Dr. ${s.specialist_name || "Specialist"}`,
+    label: awaiting ? "awaiting your verify" : `scheduled ${dmy(s.scheduled_date)}`,
+    color: awaiting ? "#D97706" : "#7C3AED",
+    awaiting,
+  };
+}
+
+// ─── F1+F2: sticky strip — medical alerts + live lab/specialist status.
+// Visible on every tab, survives scroll. Click a care pill → Coordination.
+function CareStrip({ P, W, onOpenCoordination }: { P: any; W: any; onOpenCoordination: () => void }) {
+  const alerts: string[] = Array.from(new Set([...(P.health_alerts || []), ...(P.existing_illnesses || [])]));
+  const labPills = (W?.lab_orders || []).map(labPillInfo).filter(Boolean) as any[];
+  const specPills = (W?.specialist_cases || []).map(specPillInfo).filter(Boolean) as any[];
+  if (!alerts.length && !labPills.length && !specPills.length) return null;
+  const pillBase = { display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, whiteSpace: "nowrap" as const };
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 40, background: "#fff", borderRadius: 14, padding: "8px 14px", marginBottom: 12, boxShadow: SHADOW, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", border: alerts.length ? "1.5px solid #FECACA" : `1.5px solid ${LINE}` }}>
+      {alerts.map(a => (
+        <span key={a} style={{ ...pillBase, background: "#FEE2E2", color: "#991B1B" }}>⚠ {a}</span>
+      ))}
+      {alerts.length > 0 && (labPills.length + specPills.length) > 0 && (
+        <span style={{ width: 1, height: 18, background: LINE }} />
+      )}
+      {labPills.map((p, i) => (
+        <button key={`lab${i}`} onClick={onOpenCoordination} title={p.due || "Open coordination"}
+          style={{ ...pillBase, background: p.color + "18", color: p.color, border: `1.5px solid ${p.color}55`, cursor: "pointer", fontFamily: "inherit" }}>
+          🧪 {p.title} · {p.label}{p.due ? ` · ${p.due}` : ""}
+        </button>
+      ))}
+      {specPills.map((p, i) => (
+        <button key={`spec${i}`} onClick={onOpenCoordination} title="Open coordination"
+          style={{ ...pillBase, background: p.color + "18", color: p.color, border: `1.5px solid ${p.color}55`, cursor: "pointer", fontFamily: "inherit" }}>
+          👨‍⚕️ {p.title} · {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
 export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clinicName, staff, accent = "#0E7C7B", show, onExit }:
   { patientId: string; aptId?: string | null; sessionId?: string | null; clinicId: string; clinicName?: string;
     staff: any; accent?: string; show: (m: string) => void; onExit: () => void }) {
@@ -38,13 +103,14 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
   const A = accent;
   const isSpec = staff?.role === "specialist";  // integrated specialist mode
   const [W, setW] = useState<any>(null);                 // full workspace payload
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("patient");
+  const planTabRef = useRef<HTMLDivElement>(null);
   // ─── Cross-tab navigation state (Sprint A1: Tooth ↔ Plan bidirectional flow) ───
   const [pendingTooth, setPendingTooth] = useState<number | null>(null);       // legacy — jumpToTooth sets chart directly
   const [recentlyAddedItemId, setRecentlyAddedItemId] = useState<string | null>(null); // briefly highlight a plan row
   // ─── Chart selection state (shared Tooth ↔ Plan) ───
   const [chartSelectedTeeth, setChartSelectedTeeth] = useState<number[]>([]);
-  const [chartMultiSelect, setChartMultiSelect] = useState(true);
+  const [chartMultiSelect, setChartMultiSelect] = useState(false);
   const [chartChild, setChartChild] = useState(false);
   const [chartRegion, setChartRegion] = useState<ChartRegion>("full");
   const [catalog, setCatalog] = useState<any[]>([]);
@@ -61,10 +127,24 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
   const [adjAmt, setAdjAmt] = useState("");
   const [adjReason, setAdjReason] = useState("");
   const [closeModal, setCloseModal] = useState<"" | "visit" | "treatment">("");
+  const [billingNudgeIds, setBillingNudgeIds] = useState<string[]>([]);
   const [savingDraft, setSavingDraft] = useState(false);
   const [showLabModal, setShowLabModal] = useState(false);
   const [labCompleteOrder, setLabCompleteOrder] = useState<any>(null);
   const [showSpecModal, setShowSpecModal] = useState(false);
+  // Referral needs an appointment. If workspace was opened without one (e.g. from
+  // Patients Database), auto-resolve the patient's most recent active appointment.
+  const [specAptId, setSpecAptId] = useState<string | null>(null);
+  const openSpecModal = async () => {
+    if (aptId) { setSpecAptId(aptId); setShowSpecModal(true); return; }
+    try {
+      const r = await api.pdbAppointments(patientId, 30);
+      const apts = r?.appointments || [];
+      const usable = apts.find((a: any) => !["cancelled", "rejected", "no_show"].includes(a.status || a.ws || ""));
+      if (usable) { setSpecAptId(usable.id); setShowSpecModal(true); }
+      else show("⚠ No appointment found for this patient — book a visit first, then refer");
+    } catch (e: any) { show("Error finding appointment: " + e.message); }
+  };
   const draftLoaded = useRef(false);
   const draftBaseline = useRef<string>("");
   const [compact, setCompact] = useState(false);
@@ -106,12 +186,17 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
       setW(d);
       if (!draftLoaded.current) {
         draftLoaded.current = true;
-        if (d.draft) {
-          setTicked(d.draft.ticked || []); setRxMeds(d.draft.rxMeds || []); setAdvice(d.draft.advice || "");
-          setComplaintText(d.draft.complaint || ""); setVisitNotes(d.draft.visitNotes || "");
-          setCollectToday(d.draft.collectToday || ""); setAdjAmt(d.draft.adjAmt || ""); setAdjReason(d.draft.adjReason || "");
-          syncDraftBaseline(d.draft);
-          show("📝 Draft restored");
+        // Device backup exists only if a previous server save failed — it is
+        // strictly newer than whatever the server has, so it wins.
+        let localBackup: any = null;
+        try { const raw = localStorage.getItem(`ws-offline-draft:${patientId}`); if (raw) localBackup = JSON.parse(raw)?.draft; } catch {}
+        const draft = localBackup || d.draft;
+        if (draft) {
+          setTicked(draft.ticked || []); setRxMeds(draft.rxMeds || []); setAdvice(draft.advice || "");
+          setComplaintText(draft.complaint || ""); setVisitNotes(draft.visitNotes || "");
+          setCollectToday(draft.collectToday || ""); setAdjAmt(draft.adjAmt || ""); setAdjReason(draft.adjReason || "");
+          syncDraftBaseline(localBackup ? d.draft || {} : draft); // local backup = still unsaved → stays dirty
+          show(localBackup ? "📴 Unsaved notes from this device restored" : "📝 Draft restored");
         } else if (d.appointment?.chief_complaints?.length) {
           setComplaintText(d.appointment.chief_complaints.map((c: any) => typeof c === "string" ? c : c.text).join(", "));
           syncDraftBaseline({ complaint: d.appointment.chief_complaints.map((c: any) => typeof c === "string" ? c : c.text).join(", ") });
@@ -122,14 +207,22 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
     } catch (e: any) { show("Error: " + e.message); }
   }, [patientId, clinicId, aptId, syncDraftBaseline]); // eslint-disable-line
 
+  const tabOrder = isSpec ? ["patient", "treatment", "plan", "visit"] : ["patient", "treatment", "plan", "visit", "payments"];
+
   const navigateTab = useCallback(async (next: string, opts?: { itemId?: string; silent?: boolean }) => {
     if (next === tab) return;
-    const order = isSpec
-      ? ["overview", "tooth", "plan", "rx", "files"]
-      : ["overview", "tooth", "plan", "rx", "files", "fin", "coordination"];
+    const order = tabOrder;
     const prevIdx = order.indexOf(tab);
     const nextIdx = order.indexOf(next);
     if (prevIdx >= 0 && nextIdx >= 0) setTabDir(nextIdx >= prevIdx ? 1 : -1);
+    const planItems = W?.items || [];
+    const blockers = getPlanBillingBlockers(planItems);
+    if (next === "visit" && blockers.length > 0) {
+      if (!opts?.silent) show(planBillingGateMessage(blockers));
+      setTab("plan");
+      setTabDir(1);
+      return;
+    }
     if (isDraftDirty) {
       try {
         await api.wsSaveDraft(patientId, { ticked, rxMeds, advice, complaint: complaintText, visitNotes, collectToday, adjAmt, adjReason });
@@ -139,7 +232,7 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
         if (!confirm(`Could not auto-save visit draft (${e.message}). Switch tab anyway?`)) return;
       }
     }
-    if ((tab === "tooth" && next === "plan") || (tab === "plan" && next === "tooth")) {
+    if (tab === "treatment" || next === "treatment" || tab === "plan" || next === "plan") {
       try { await load(); } catch { /* optimistic state remains */ }
     }
     if (opts?.itemId) {
@@ -147,16 +240,17 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
       setTimeout(() => setRecentlyAddedItemId(null), 4000);
     }
     setTab(next);
-  }, [tab, isDraftDirty, isSpec, ticked, rxMeds, advice, complaintText, visitNotes, collectToday, adjAmt, adjReason, patientId, show, syncDraftBaseline, load]);
+  }, [tab, tabOrder, isDraftDirty, isSpec, ticked, rxMeds, advice, complaintText, visitNotes, collectToday, adjAmt, adjReason, patientId, show, syncDraftBaseline, load, W?.items]);
 
   const jumpToTooth = useCallback((toothNumber: number) => {
     if (toothNumber >= 51 && toothNumber <= 85) setChartChild(true);
     else if (toothNumber >= 11 && toothNumber <= 48) setChartChild(false);
     setChartSelectedTeeth([toothNumber]);
-    navigateTab("tooth", { silent: true });
+    navigateTab("treatment", { silent: true });
   }, [navigateTab]);
   const jumpToPlan = useCallback((newItemId?: string) => {
-    navigateTab("plan", { itemId: newItemId });
+    navigateTab("plan", { itemId: newItemId, silent: true });
+    setTimeout(() => planTabRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
   }, [navigateTab]);
 
   useEffect(() => { load(); api.wsTreatments().then(setCatalog).catch(() => {});
@@ -165,18 +259,74 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
     api.wsExamCatalog().then(setExamCatalog).catch(() => {});
     api.wsDiagCatalog().then(setDiagCatalog).catch(() => {}); }, [load]);
 
-  const fin = W?.financial || { total_value: 0, paid: 0, outstanding: 0, today_added: 0, previous_outstanding: 0, ledger: [] };
+  const fin = W?.financial || { total_value: 0, paid: 0, outstanding: 0, today_added: 0, previous_outstanding: 0, ledger: [], lab_due: 0, specialist_due: 0 };
   const items = W?.items || [];
   const activeItems = items.filter((i: any) => i.status !== "completed" && i.status !== "cancelled");
+  const billingBlockers = useMemo(() => getPlanBillingBlockers(items), [items]);
+  const billingReady = useMemo(() => isPlanBillingReady(items), [items]);
+  const blockCloseForBilling = useCallback(() => {
+    if (billingBlockers.length === 0) return false;
+    setBillingNudgeIds(billingBlockers.map(b => b.id));
+    show(planBillingGateMessage(billingBlockers));
+    navigateTab("plan", { silent: true });
+    window.setTimeout(() => planTabRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    window.setTimeout(() => setBillingNudgeIds([]), 4500);
+    return true;
+  }, [billingBlockers, show, navigateTab]);
 
   // ── Draft ─────────────────────────────────────────────────────
+  // Offline safety net: notes are mirrored to this device (localStorage) so a
+  // server outage or crash mid-visit can never lose the doctor's work.
+  const offlineKey = `ws-offline-draft:${patientId}`;
+  const [offline, setOffline] = useState(false);
+  const draftPayload = () => ({ ticked, rxMeds, advice, complaint: complaintText, visitNotes, collectToday, adjAmt, adjReason });
+
   const saveDraft = async (silent = false) => {
     setSavingDraft(true);
+    const payload = draftPayload();
+    try { localStorage.setItem(offlineKey, JSON.stringify({ at: Date.now(), draft: payload })); } catch { /* storage full/blocked */ }
     try {
-      await api.wsSaveDraft(patientId, { ticked, rxMeds, advice, complaint: complaintText, visitNotes, collectToday, adjAmt, adjReason });
-      syncDraftBaseline({ ticked, rxMeds, advice, complaint: complaintText, visitNotes, collectToday, adjAmt, adjReason });
+      await api.wsSaveDraft(patientId, payload);
+      syncDraftBaseline(payload);
+      try { localStorage.removeItem(offlineKey); } catch {}
+      setOffline(false);
       if (!silent) show("💾 Draft saved");
-    } catch (e: any) { if (!silent) show("Error: " + e.message); } finally { setSavingDraft(false); }
+    } catch (e: any) {
+      setOffline(true);
+      if (!silent) show("📴 Server unreachable — notes kept safe on this device");
+    } finally { setSavingDraft(false); }
+  };
+
+  // Every 5s while dirty: mirror to this device. Every 30s: push to server.
+  const autosaveRef = useRef<() => void>(() => {});
+  const mirrorRef = useRef<() => void>(() => {});
+  autosaveRef.current = () => { if (isDraftDirty && !savingDraft) saveDraft(true); };
+  mirrorRef.current = () => {
+    if (!isDraftDirty) return;
+    try { localStorage.setItem(offlineKey, JSON.stringify({ at: Date.now(), draft: draftPayload() })); } catch {}
+  };
+  useEffect(() => {
+    const mirror = setInterval(() => mirrorRef.current(), 5000);
+    const push = setInterval(() => autosaveRef.current(), 30000);
+    return () => { clearInterval(mirror); clearInterval(push); };
+  }, []);
+
+  // ── Warn before closing tab / refresh with unsaved chairside work ──
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDraftDirty) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDraftDirty]);
+
+  // ── Guard the back/exit button. Local mirror means exit is always safe. ──
+  const guardedExit = async () => {
+    if (isDraftDirty) {
+      try { await saveDraft(true); show("💾 Draft saved"); }
+      catch { show("📴 Notes kept on this device — they'll restore when you reopen this patient"); }
+    }
+    onExit();
   };
 
   // ── Today's work ticking → medicine + advice intelligence ─────
@@ -266,12 +416,15 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
     }
   };
 
-  const ALL_TABS = [
-    ["overview", "📋 Overview"], ["tooth", "🦷 Clinical Tooth Chart"], ["plan", "🧩 Treatment Plan"],
-    ["rx", "💊 Prescription & Visit"], ["files", "📎 Files / RVG"], ["fin", "₹ Financials"],
-    ["coordination", "🤝 Coordination"]
+  const planCount = items.filter((i: any) => i.status !== "cancelled").length;
+  const billingPendingCount = billingBlockers.length;
+  const TABS = [
+    ["patient", "👤 Patient", null],
+    ["treatment", "🦷 Treatment", null],
+    ["plan", "🧩 Treatment Plan", billingPendingCount > 0 ? billingPendingCount : (planCount || null)],
+    ["visit", "✅ Finish Visit", null],
+    ...(!isSpec ? [["payments", "💳 Payments", null] as const] : []),
   ];
-  const TABS = isSpec ? ALL_TABS.filter(t => t[0] !== "fin" && t[0] !== "coordination") : ALL_TABS;
 
   useLayoutEffect(() => {
     const btn = tabBtnRefs.current[tab];
@@ -307,7 +460,12 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
       {/* ══ HEADER — scrolls with page (more room for tab content) ══ */}
       <div style={{ background: "#fff", borderRadius: 18, padding: "14px 18px", boxShadow: SHADOW_LG, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" as const }}>
-          <button onClick={onExit} style={{ display: "flex", alignItems: "center", gap: 6, border: `1.5px solid ${LINE}`, background: "#fff", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit" }}>
+          {offline && (
+            <span style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 800 }}>
+              📴 Offline — notes safe on this device
+            </span>
+          )}
+          <button onClick={guardedExit} style={{ display: "flex", alignItems: "center", gap: 6, border: `1.5px solid ${LINE}`, background: "#fff", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit" }}>
             <ArrowLeft size={16} /> Queue
           </button>
           <div style={{ flex: 1, minWidth: 220 }}>
@@ -315,9 +473,7 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
               <b style={{ fontSize: 19, color: INK }}>{P.name}</b>
               <span style={{ fontSize: 13, color: MUTE, fontWeight: 600 }}>{P.age ? `${P.age}y` : ""}{P.gender ? ` · ${P.gender}` : ""}</span>
               <TypeBadge type={P.patient_type} />
-              {(P.existing_illnesses || []).map((i: string) => (
-                <span key={i} style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 999, padding: "2px 9px", fontSize: 10.5, fontWeight: 800 }}>⚠ {i}</span>
-              ))}
+              {/* Medical alert chips moved to the sticky CareStrip below (always visible on every tab) */}
             </div>
             <div style={{ fontSize: 12, color: MUTE, marginTop: 3 }}>
               {complaintText ? <span style={{ color: "#9A3412", fontWeight: 700 }}>🗣 {complaintText}</span> : "No complaint recorded"}
@@ -339,7 +495,7 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
               🧪 Send to Lab
             </button>
             {!isSpec && (
-            <button onClick={() => setShowSpecModal(true)} style={{ display: "flex", alignItems: "center", gap: 5, border: `2px solid #8B5CF6`, background: "#F5F3FF", color: "#5B21B6", borderRadius: 13, padding: "10px 14px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }} title="Refer patient to a specialist">
+            <button onClick={openSpecModal} style={{ display: "flex", alignItems: "center", gap: 5, border: `2px solid #8B5CF6`, background: "#F5F3FF", color: "#5B21B6", borderRadius: 13, padding: "10px 14px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }} title="Refer patient to a specialist">
               👨‍⚕️ Refer to Specialist
             </button>
             )}
@@ -349,11 +505,18 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
             <button onClick={() => saveDraft()} disabled={savingDraft} style={{ display: "flex", alignItems: "center", gap: 6, border: `2px solid ${A}`, background: "#fff", color: A, borderRadius: 13, padding: "11px 16px", cursor: "pointer", fontWeight: 800, fontSize: 13.5, fontFamily: "inherit" }}>
               <Save size={16} /> {savingDraft ? "Saving…" : "Save Draft"}
             </button>
-            <button onClick={() => { if (isSpec) doSpecialistDone(); else { setFollowDate(""); setCloseModal("visit"); } }} disabled={closing} style={{ display: "flex", alignItems: "center", gap: 6, background: `linear-gradient(135deg,${A},${A}DD)`, color: "#fff", border: "none", borderRadius: 13, padding: "11px 18px", cursor: closing ? "not-allowed" : "pointer", fontWeight: 800, fontSize: 13.5, fontFamily: "inherit", boxShadow: `0 6px 18px ${A}55` }}>
+            <button onClick={() => {
+              if (isSpec) { doSpecialistDone(); return; }
+              if (blockCloseForBilling()) return;
+              setFollowDate(""); setCloseModal("visit");
+            }} disabled={closing} style={{ display: "flex", alignItems: "center", gap: 6, background: `linear-gradient(135deg,${A},${A}DD)`, color: "#fff", border: "none", borderRadius: 13, padding: "11px 18px", cursor: closing ? "wait" : "pointer", fontWeight: 800, fontSize: 13.5, fontFamily: "inherit", boxShadow: `0 6px 18px ${A}55` }}>
               <CheckCircle size={16} /> {isSpec ? (closing ? "Completing…" : "Mark My Job Completed") : "Close Visit"}
             </button>
             {!isSpec && (
-            <button onClick={() => { setCollectToday(String(fin.outstanding || 0)); setCloseModal("treatment"); }} style={{ display: "flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg,#DC2626,#EF4444)", color: "#fff", border: "none", borderRadius: 13, padding: "11px 18px", cursor: "pointer", fontWeight: 800, fontSize: 13.5, fontFamily: "inherit", boxShadow: "0 6px 18px #DC262655" }}>
+            <button onClick={() => {
+              if (blockCloseForBilling()) return;
+              setCollectToday(String(fin.outstanding || 0)); setCloseModal("treatment");
+            }} style={{ display: "flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg,#DC2626,#EF4444)", color: "#fff", border: "none", borderRadius: 13, padding: "11px 18px", cursor: "pointer", fontWeight: 800, fontSize: 13.5, fontFamily: "inherit", boxShadow: "0 6px 18px #DC262655" }}>
               <DollarSign size={16} /> Close Treatment
             </button>
             )}
@@ -363,8 +526,9 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
           {tabIndicator.width > 0 && (
             <div className="tw-tab-indicator" style={{ left: tabIndicator.left, width: tabIndicator.width }} />
           )}
-          {TABS.map(([id, label]) => {
-            const coordBadge = id === "coordination" && (labPendingCount + specPendingCount) > 0;
+          {TABS.map(([id, label, count]) => {
+            const coordBadge = id === "patient" && !isSpec && (labPendingCount + specPendingCount) > 0;
+            const showCount = typeof count === "number" && count > 0;
             return (
               <button
                 key={id}
@@ -373,6 +537,11 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
                 className={`tw-tab${tab === id ? " tw-tab-active" : ""}`}
               >
                 {label}
+                {showCount && (
+                  <span className="tw-tab-badge" style={{ background: tab === id ? "#fff" : A, color: tab === id ? A : "#fff" }}>
+                    {count}
+                  </span>
+                )}
                 {coordBadge && (
                   <span className="tw-tab-badge" style={{ background: tab === id ? "#fff" : "#F59E0B", color: tab === id ? A : "#fff" }}>
                     {labPendingCount + specPendingCount}
@@ -384,6 +553,9 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
         </div>
       </div>
 
+      {/* F1+F2 — always-visible safety + care-progress strip (lab/specialist actions live in Overview) */}
+      <CareStrip P={P} W={W} onOpenCoordination={() => navigateTab("patient")} />
+
       {isDraftDirty && (
         <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 12, padding: "8px 14px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: "#1E40AF" }}>
           <span>Visit notes / Rx draft has unsaved changes — auto-saves when you switch tabs</span>
@@ -391,29 +563,28 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
         </div>
       )}
 
-      <TabPanel tab={tab} id="overview" dir={tabDir}>
-        {tab === "overview" && (labPendingCount > 0 || specPendingCount > 0) && (
-          <div onClick={() => navigateTab("coordination")} style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "10px 14px", marginBottom: 12, cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#92400E" }}>
-            🤝 Lab / specialist work needs attention — open Coordination tab
-          </div>
-        )}
+      <TabPanel tab={tab} id="patient" dir={tabDir}>
         <OverviewTab W={W} A={A} show={show} reload={load} aptId={aptId}
           complaintText={complaintText} setComplaintText={setComplaintText} setTab={navigateTab} />
+        {!isSpec && ((W?.lab_orders || []).length > 0 || (W?.specialist_cases || []).length > 0) && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, color: INK }}>Lab & Specialist</div>
+              {(labPendingCount + specPendingCount) > 0 && (
+                <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 800 }}>
+                  {labPendingCount + specPendingCount} waiting
+                </span>
+              )}
+            </div>
+            <LabGuardBanner patientId={W.patient.id} />
+            <DoctorCoordinationTab W={W} show={show} reload={load} staff={staff}
+              onCompleteLabOrder={(order: any) => setLabCompleteOrder(order)} />
+          </div>
+        )}
       </TabPanel>
 
-      <TabPanel tab={tab} id="tooth" dir={tabDir}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, padding: "6px 10px", background: "#fff", borderRadius: 12, boxShadow: SHADOW }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, paddingRight: 6, alignSelf: "center" }}>🦷 Status:</div>
-          {[
-            ["Caries / Decay", "#EF4444"], ["Filling", "#3B82F6"], ["Crown", "#8B5CF6"],
-            ["RCT", "#F59E0B"], ["Missing", "#94A3B8"], ["Implant", "#14B8A6"],
-          ].map(([label, color]) => (
-            <span key={label} style={{ background: color as string, color: "#fff", borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 6, height: 6, background: "#fff", borderRadius: 1, opacity: 0.9 }} /> {label}
-            </span>
-          ))}
-        </div>
-        <ClinicalToothTab W={W} A={A} show={show} reload={load} patientId={patientId} clinicId={clinicId}
+      <TabPanel tab={tab} id="treatment" dir={tabDir}>
+        <ClinicalToothTab W={W} A={A} show={show} reload={load} patientId={patientId} clinicId={clinicId} aptId={aptId} isSpec={isSpec}
           issueCatalog={issueCatalog} setIssueCatalog={setIssueCatalog}
           examCatalog={examCatalog} setExamCatalog={setExamCatalog}
           diagCatalog={diagCatalog} setDiagCatalog={setDiagCatalog}
@@ -422,58 +593,127 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
           chartMultiSelect={chartMultiSelect} setChartMultiSelect={setChartMultiSelect}
           chartChild={chartChild} setChartChild={setChartChild}
           chartRegion={chartRegion} setChartRegion={setChartRegion}
-          onJumpToPlan={jumpToPlan}
           onEditPlanItem={setPlanEditItem}
-          onWorkspacePatch={patchWorkspace} />
+          onWorkspacePatch={patchWorkspace}
+          onJumpToPlan={jumpToPlan} />
       </TabPanel>
 
       <TabPanel tab={tab} id="plan" dir={tabDir}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, padding: "6px 10px", background: "#fff", borderRadius: 12, boxShadow: SHADOW }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, paddingRight: 6, alignSelf: "center" }}>🦷 Status:</div>
-          {[
-            ["Caries / Decay", "#EF4444"], ["Filling", "#3B82F6"], ["Crown", "#8B5CF6"],
-            ["RCT", "#F59E0B"], ["Missing", "#94A3B8"], ["Implant", "#14B8A6"],
-          ].map(([label, color]) => (
-            <span key={label} style={{ background: color as string, color: "#fff", borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 6, height: 6, background: "#fff", borderRadius: 1, opacity: 0.9 }} /> {label}
-            </span>
-          ))}
+        <div ref={planTabRef}>
+          <TreatmentPlanTab
+            W={W}
+            accent={A}
+            items={items}
+            selectedTeeth={chartSelectedTeeth}
+            highlightId={recentlyAddedItemId}
+            onSelectTooth={(n) => jumpToTooth(n)}
+            billingBlockers={billingBlockers}
+            billingReady={billingReady}
+            billingNudgeIds={billingNudgeIds}
+            hidePrices={isSpec}
+            onQuickPrice={async (item: any, rate: number, discount: number, notes?: string, opts?: { price_confirmed?: boolean }) => {
+              try {
+                const pays = Math.max(0, rate - discount);
+                if (isSpec) {
+                  // Specialist can only update work notes — money is the owner's domain
+                  await api.wsEditPlanItem(item.id, { notes: notes ?? item.notes });
+                  show(`✓ Notes saved — ${item.treatment_name}`);
+                } else {
+                  await api.wsEditPlanItem(item.id, {
+                    doctor_rate: rate, suggested_rate: rate, discount,
+                    notes: notes ?? item.notes,
+                    price_confirmed: opts?.price_confirmed && pays > 0,
+                  });
+                  show(opts?.price_confirmed ? `✓ Confirmed ${item.treatment_name} — ${fmt(pays)}` : `✓ ${item.treatment_name} — ${fmt(pays)}`);
+                }
+                await load();
+              } catch (e: any) { show(e.message); }
+            }}
+            onStatusCycle={async (item: any) => {
+              const next = item.status === "advised" ? "in_progress" : item.status === "in_progress" ? "completed" : "advised";
+              try { await api.wsEditPlanItem(item.id, { status: next }); show(`✓ ${item.treatment_name} → ${next}`); await load(); }
+              catch (e: any) { show(e.message); }
+            }}
+            onDelete={async (item: any) => {
+              if (!confirm(`Remove ${item.treatment_name}?`)) return;
+              try { await api.wsDeletePlanItem(item.id); show("✓ Removed"); await load(); }
+              catch (e: any) { show(e.message); }
+            }}
+            onEdit={(item: any) => setPlanEditItem(item)}
+            onJumpToTreatment={() => navigateTab("treatment")}
+            onAddForTooth={(n) => jumpToTooth(n)}
+            catalog={catalog}
+            onAddPlanItem={async ({ treatment, teeth, rate, discount, procedureId }) => {
+              const examSummary = (W?.tooth_examinations || [])
+                .filter((e: any) => teeth.includes(e.tooth ?? e.tooth_number))
+                .map((e: any) => e.finding).filter(Boolean).join(", ");
+              const diagSummary = (W?.tooth_diagnoses || [])
+                .filter((d: any) => teeth.includes(d.tooth ?? d.tooth_number))
+                .map((d: any) => d.diagnosis).filter(Boolean).join(", ");
+              try {
+                const pays = Math.max(0, rate - discount);
+                const result = await api.wsAddPlanItem(patientId, {
+                  treatment_name: treatment,
+                  procedure_id: procedureId || null,
+                  teeth,
+                  suggested_rate: rate,
+                  doctor_rate: rate,
+                  discount,
+                  clinic_id: clinicId,
+                  examination_summary: examSummary || undefined,
+                  diagnosis: diagSummary || undefined,
+                  price_confirmed: pays > 0,
+                });
+                const itemId = result.item_id || result.id;
+                if (itemId) setRecentlyAddedItemId(itemId);
+                show(`✓ ${treatment} — ${fmt(Math.max(0, rate - discount))}`);
+                await load();
+              } catch (e: any) { show(e.message); }
+            }}
+          />
         </div>
-        <PlanTab W={W} A={A} show={show} reload={load} catalog={catalog} setCatalog={setCatalog}
-          patientId={patientId} clinicId={clinicId}
-          recentlyAddedItemId={recentlyAddedItemId} onJumpToTooth={jumpToTooth}
-          chartSelectedTeeth={chartSelectedTeeth} chartChild={chartChild}
-          editItem={planEditItem} setEditItem={setPlanEditItem}
-          picker={planPicker} setPicker={setPlanPicker} />
       </TabPanel>
 
-      <TabPanel tab={tab} id="rx" dir={tabDir}>
+      <TabPanel tab={tab} id="visit" dir={tabDir}>
+        {!billingReady && billingBlockers.length > 0 && (
+          <div style={{
+            background: "#FEF3C7", border: "2px solid #FCD34D", borderRadius: 14, padding: "12px 16px",
+            marginBottom: 14, fontSize: 13, fontWeight: 700, color: "#92400E",
+          }}>
+            Confirm all treatment rates on <button type="button" onClick={() => navigateTab("plan")} style={{ border: "none", background: "transparent", color: A, fontWeight: 900, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Treatment Plan</button> before closing this visit.
+          </div>
+        )}
         <RxTab W={W} A={A} staff={staff} show={show} clinicName={clinicName || "Siya Dental Care"}
           clinicId={clinicId} aptId={aptId} reload={load}
           activeItems={activeItems} ticked={ticked} toggleStep={toggleStep} toggleItemComplete={toggleItemComplete}
           rxMeds={rxMeds} setRxMeds={setRxMeds} advice={advice} setAdvice={setAdvice}
           medCatalog={medCatalog} complaintText={complaintText} setComplaintText={setComplaintText}
           visitNotes={visitNotes} setVisitNotes={setVisitNotes} />
+        {!isSpec && (
+          <div style={{ marginTop: 16, fontSize: 13, color: MUTE, fontWeight: 600 }}>
+            Patient, lab &amp; specialist payments are on the <button type="button" onClick={() => navigateTab("payments")} style={{ border: "none", background: "transparent", color: A, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Payments</button> tab (next).
+          </div>
+        )}
       </TabPanel>
 
-      <TabPanel tab={tab} id="files" dir={tabDir}>
-        <FilesTab patientId={patientId} aptId={aptId} A={A} show={show} items={items} />
+      <TabPanel tab={tab} id="payments" dir={tabDir}>
+        {!isSpec && (
+          <PaymentsTab
+            W={W}
+            fin={fin}
+            accent={A}
+            collectToday={collectToday}
+            setCollectToday={setCollectToday}
+            adjAmt={adjAmt}
+            setAdjAmt={setAdjAmt}
+            adjReason={adjReason}
+            setAdjReason={setAdjReason}
+            billingReady={billingReady}
+            billingBlockers={billingBlockers}
+            onGoToPlan={() => navigateTab("plan")}
+          />
+        )}
       </TabPanel>
-
-      {!isSpec && (
-        <TabPanel tab={tab} id="fin" dir={tabDir}>
-          <FinTab fin={fin} A={A} collectToday={collectToday} setCollectToday={setCollectToday}
-            adjAmt={adjAmt} setAdjAmt={setAdjAmt} adjReason={adjReason} setAdjReason={setAdjReason} />
-        </TabPanel>
-      )}
-
-      {!isSpec && (
-        <TabPanel tab={tab} id="coordination" dir={tabDir}>
-          <LabGuardBanner patientId={W.patient.id} />
-          <DoctorCoordinationTab W={W} show={show} reload={load} staff={staff}
-            onCompleteLabOrder={(order: any) => setLabCompleteOrder(order)} />
-        </TabPanel>
-      )}
 
       {/* Treatment entry/edit modal lifted so it can be opened from Tooth tab (for "edit from dropdown / added list") without leaving the view first. Modal is overlay so user stays in context. */}
       {(planPicker || planEditItem) && <TreatmentEntryModal A={A} show={show} treatment={planPicker} item={planEditItem} catalog={catalog}
@@ -576,13 +816,13 @@ export function TreatmentWorkspace({ patientId, aptId, sessionId, clinicId, clin
           }}
         />
       )}
-      {showSpecModal && W?.patient && aptId && (
+      {showSpecModal && W?.patient && specAptId && (
         <SendToSpecialistModal
           patientId={W.patient.id}
           patientName={W.patient.name}
           clinicId={clinicId}
-          appointmentId={aptId}
-          onClose={() => setShowSpecModal(false)}
+          appointmentId={specAptId}
+          onClose={() => { setShowSpecModal(false); setSpecAptId(null); }}
           onSaved={() => { show("Specialist referred ✅"); load(); }}
         />
       )}
@@ -681,7 +921,7 @@ function OverviewTab({ W, A, show, reload, aptId, complaintText, setComplaintTex
 }
 
 // ═══════════════ TAB 2 · TREATMENT PLAN (MASTER) ═════════════
-function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId, recentlyAddedItemId, onJumpToTooth, chartSelectedTeeth, chartChild, editItem: propEditItem, setEditItem: propSetEditItem, picker: propPicker, setPicker: propSetPicker }: any) {
+function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId, recentlyAddedItemId, onJumpToTooth, chartSelectedTeeth, chartChild, editItem: propEditItem, setEditItem: propSetEditItem, picker: propPicker, setPicker: propSetPicker, simple }: any) {
   const items = (W.items || []).filter((i: any) => i.status !== "cancelled");
   // Use lifted props if provided (for cross-tab edit from Tooth view), else local fallback for standalone use
   const [localPicker, setLocalPicker] = useState<any>(null);
@@ -696,8 +936,17 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
   const [showTemplates, setShowTemplates] = useState(false);  // hidden by default — spec
   const [templates, setTemplates] = useState<any[]>([]);
   const [templateApplying, setTemplateApplying] = useState<any>(null);  // template being teeth-mapped
-  const toothBased = catalog.filter((c: any) => c.is_tooth_based);
-  const general = catalog.filter((c: any) => !c.is_tooth_based);
+  const [planSearch, setPlanSearch] = useState("");
+  const frequentProcedures = useMemo(() => {
+    const toothFirst = catalog.filter((c: any) => c.is_tooth_based);
+    const general = catalog.filter((c: any) => !c.is_tooth_based);
+    return [...toothFirst, ...general].slice(0, 8);
+  }, [catalog]);
+  const filteredPlanCatalog = useMemo(() => {
+    const q = planSearch.trim().toLowerCase();
+    if (!q) return [];
+    return catalog.filter((c: any) => c.name.toLowerCase().includes(q)).slice(0, 16);
+  }, [catalog, planSearch]);
   const normalizeTemplate = (tpl: any) => {
     let procs = tpl.procedures;
     if (typeof procs === "string") { try { procs = JSON.parse(procs); } catch { procs = []; } }
@@ -764,6 +1013,7 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
 
   return (
     <div>
+      {!simple && <>
       {/* Templates — hidden behind a discover button (spec: "if required, use") */}
       <div style={{ marginBottom: 14, display: "flex", justifyContent: "flex-end" }}>
         <button onClick={() => setShowTemplates(!showTemplates)}
@@ -797,18 +1047,44 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
       {templateApplying && <TemplateApplyModal A={A} template={templateApplying}
         onCancel={() => setTemplateApplying(null)} onApply={applyTemplate} />}
 
-      {/* Add treatment */}
+      {/* Add treatment — search-first; chair-side adding happens on the Tooth Chart */}
       <div style={card}>
-        <SectionTitle>➕ Add Treatment <span style={{ fontSize: 11, fontWeight: 500, color: MUTE }}>— everything else derives from this</span></SectionTitle>
-        <div style={{ fontSize: 11.5, fontWeight: 800, color: MUTE, margin: "8px 0 5px", letterSpacing: .4 }}>🦷 TOOTH-BASED</div>
-        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5 }}>
-          {toothBased.map((t: any) => <button key={t.id} onClick={() => setPicker(t)} style={tBtn(A)}>{t.name} <span style={{ color: MUTE, fontWeight: 600 }}>{fmt(t.rate)}</span></button>)}
+        <SectionTitle>➕ Add Treatment <span style={{ fontSize: 11, fontWeight: 500, color: MUTE }}>— review &amp; billing · tooth-wise on the Tooth Chart</span></SectionTitle>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 }}>
+          <input
+            value={planSearch}
+            onChange={e => setPlanSearch(e.target.value)}
+            placeholder="🔍 Search procedure by name…"
+            style={{ ...inp, flex: 1, minWidth: 200, marginBottom: 0 }}
+          />
+          <button onClick={() => onJumpToTooth?.(chartSelectedTeeth[0] || 11)} style={{ ...btn("#6366F1"), padding: "10px 16px", fontSize: 13 }}>
+            🎨 Open Canvas
+          </button>
         </div>
-        <div style={{ fontSize: 11.5, fontWeight: 800, color: MUTE, margin: "10px 0 5px", letterSpacing: .4 }}>🩺 GENERAL / NON-TOOTH</div>
-        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5 }}>
-          {general.map((t: any) => <button key={t.id} onClick={() => setPicker(t)} style={tBtn("#6366F1")}>{t.name} <span style={{ color: MUTE, fontWeight: 600 }}>{fmt(t.rate)}</span></button>)}
-        </div>
-        <div style={{ display: "flex", gap: 7, marginTop: 12, alignItems: "center", flexWrap: "wrap" as const }}>
+        {filteredPlanCatalog.length > 0 && (
+          <div style={{ border: `1px solid ${LINE}`, borderRadius: 12, marginBottom: 10, maxHeight: 220, overflow: "auto" }}>
+            {filteredPlanCatalog.map((t: any) => (
+              <button key={t.id} onClick={() => { setPicker(t); setPlanSearch(""); }}
+                style={{ display: "block", width: "100%", textAlign: "left" as const, padding: "11px 14px", border: "none", borderBottom: `1px solid ${SOFT}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
+                {t.name} <span style={{ color: MUTE, fontWeight: 600 }}>{fmt(t.rate)}</span>
+                {t.is_tooth_based && <span style={{ marginLeft: 8, fontSize: 10, color: A, fontWeight: 800 }}>TOOTH</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {!planSearch && frequentProcedures.length > 0 && (
+          <>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: MUTE, letterSpacing: 0.4, marginBottom: 6, textTransform: "uppercase" as const }}>Frequent procedures</div>
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginBottom: 12 }}>
+              {frequentProcedures.map((t: any) => (
+                <button key={t.id} onClick={() => setPicker(t)} style={chipGhost(t.is_tooth_based ? A : "#6366F1")}>
+                  + {t.name} <span style={{ opacity: 0.7 }}>{fmt(t.rate)}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" as const }}>
           <input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Custom treatment name" style={{ ...inp, flex: 2, minWidth: 160 }} />
           <input type="number" value={customRate} onChange={e => setCustomRate(e.target.value)} placeholder="Rate ₹" style={{ ...inp, width: 100 }} />
           <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#475569" }}>
@@ -817,18 +1093,35 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
           <button onClick={addCustom} style={{ ...btn(A), padding: "10px 16px" }}>＋ Add Custom</button>
         </div>
       </div>
+      </>}
+
+      {/* Tooth-wise summary — exam / diagnosis / treatment + amounts per tooth */}
+      {!simple && ((W.tooth_examinations || []).length + (W.tooth_diagnoses || []).length + (W.tooth_treatments || []).length) > 0 && (
+        <div style={{ ...card, marginTop: 14, background: "linear-gradient(135deg,#F8FAFC,#fff)" }}>
+          <SectionTitle>🦷 Tooth-wise summary <span style={{ fontSize: 11, fontWeight: 500, color: MUTE }}>— tap a tooth to open on chart</span></SectionTitle>
+          <ToothSummaryGrid W={W} accent={A} planItems={items} selectedTeeth={chartSelectedTeeth} onSelectTooth={(n) => onJumpToTooth?.(n)} />
+        </div>
+      )}
 
       {/* Plan table — redesigned T.1 cards */}
-      <div style={{ ...card, marginTop: 14, padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px 10px" }}>
+      <div style={{ ...card, marginTop: simple ? 0 : 14, padding: 0, overflow: "hidden" }}>
+        {!simple && <div style={{ padding: "14px 18px 10px" }}>
           <SectionTitle>🧩 Treatment Plan {items.length > 0 && <span style={{ background: A, color: "#fff", borderRadius: 999, padding: "1px 9px", fontSize: 11 }}>{items.length}</span>}</SectionTitle>
-        </div>
+        </div>}
         <TreatmentPlanCards
           items={items}
           accent={A}
           fmt={fmt}
           show={show}
           reload={reload}
+          simple={simple}
+          onQuickPrice={async (item: any, rate: number, discount: number) => {
+            try {
+              await api.wsEditPlanItem(item.id, { doctor_rate: rate, discount });
+              show(`✓ ${item.treatment_name} — ₹${Math.max(0, rate - discount).toLocaleString("en-IN")}`);
+              reload();
+            } catch (e: any) { show(e.message); }
+          }}
           onEdit={(item: any) => setEditItem(item)}
           onDelete={async (item: any) => {
             if (!confirm(`Remove ${item.treatment_name}?`)) return;
@@ -845,11 +1138,15 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
             catch (e: any) { show(e.message); }
           }}
           onJumpToTooth={onJumpToTooth}
+          onOpenInCanvas={(item: any) => {
+            const t = (item.teeth || [])[0];
+            if (t) onJumpToTooth?.(t);
+            else onJumpToTooth?.(chartSelectedTeeth[0] || 11);
+          }}
         />
       </div>
 
-      {/* Revision history */}
-      <div style={{ ...card, marginTop: 14 }}>
+      {!simple && <div style={{ ...card, marginTop: 14 }}>
         <button onClick={() => setShowRevs(!showRevs)} style={{ border: "none", background: "transparent", cursor: "pointer", fontWeight: 800, fontSize: 14, fontFamily: "inherit", color: INK, padding: 0 }}>
           🕑 Treatment Revision History ({(W.revisions || []).length}) {showRevs ? "▲" : "▼"} <span style={{ fontSize: 11, fontWeight: 500, color: MUTE }}>auto-maintained</span>
         </button>
@@ -863,7 +1160,7 @@ function PlanTab({ W, A, show, reload, catalog, setCatalog, patientId, clinicId,
           ))}
           {(W.revisions || []).length === 0 && <div style={{ fontSize: 13, color: MUTE }}>No revisions yet.</div>}
         </div>}
-      </div>
+      </div>}
 
       {/* Modal is now rendered at TreatmentWorkspace top level for cross-tab editing support (e.g. edit from tooth view dropdown/added list) */}
     </div>
@@ -1153,7 +1450,7 @@ function FinTab({ fin, A, collectToday, setCollectToday, adjAmt, setAdjAmt, adjR
       <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr", gap: 14, alignItems: "start" }}>
         <div style={card}>
           <SectionTitle>💰 Amount To Collect Today</SectionTitle>
-          <div style={{ fontSize: 12, color: MUTE, marginBottom: 8 }}>Treatment costs are edited only in the Treatment Plan. This is what the nurse collects when you close the visit.</div>
+          <div style={{ fontSize: 12, color: MUTE, marginBottom: 8 }}>Set per-treatment prices on the Treatment tab. Here, enter what the nurse collects when you close the visit.</div>
           <input type="number" value={collectToday} onChange={(e: any) => setCollectToday(e.target.value)} placeholder="0"
             style={{ ...inp, fontSize: 28, fontWeight: 900, textAlign: "center" as const, borderColor: A, borderWidth: 2 }} />
           <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" as const }}>

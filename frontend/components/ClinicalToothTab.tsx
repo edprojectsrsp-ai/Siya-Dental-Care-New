@@ -1,8 +1,13 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import * as api from "@/lib/api";
 import { ToothWidget, type ChartRegion } from "@/components/ToothWidget";
-import { Camera, Plus, ArrowRight, Check } from "lucide-react";
+import { Camera } from "lucide-react";
+import { UndoToast } from "@/components/clinical/UndoToast";
+import ToothSummaryGrid from "@/components/clinical/ToothSummaryGrid";
+import { GroupedToothBanner } from "@/components/clinical/GroupedToothBanner";
+import { ClinicalAddPanel } from "@/components/clinical/ClinicalAddPanel";
+import Tooth3DPanel from "@/components/clinical/Tooth3DPanel";
 
 const INK = "#0F172A", MUTE = "#64748B", LINE = "#E2E8F0", SOFT = "#F8FAFC";
 const SHADOW = "0 1px 2px rgba(15,23,42,.05), 0 4px 14px rgba(15,23,42,.06)";
@@ -47,34 +52,130 @@ const chipGhost = (c: string): any => ({ background: c + "0D", color: c, border:
 const inp: any = { width: "100%", border: `1.5px solid ${LINE}`, borderRadius: 12, padding: "13px 16px", fontSize: 15, boxSizing: "border-box", outline: "none", fontFamily: "inherit", background: "#fff" };
 const btn = (c: string): any => ({ background: c, color: "#fff", border: "none", padding: "12px 20px", borderRadius: 12, cursor: "pointer", fontWeight: 800, fontSize: 14.5, fontFamily: "inherit" });
 
-function SectionTitle({ children }: any) { return <div style={{ fontWeight: 800, fontSize: 14.5, color: INK, marginBottom: 8 }}>{children}</div>; }
-function ChipX({ text, bg, color, onX }: any) {
-  return <span style={{ background: bg, color, padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>{text}<button onClick={onX} style={{ background: "transparent", border: "none", cursor: "pointer", color, padding: 0 }}>✕</button></span>;
+// Inline price-confirm — shown the moment a treatment is tapped, so rate/discount
+// are set right here instead of switching to the Plan tab to edit afterward.
+function PriceConfirm({ A, data, onChange, onCancel, onConfirm }: any) {
+  const final = Math.max(0, (data.rate || 0) - (data.discount || 0));
+  const num = (v: string) => Math.max(0, parseFloat(v.replace(/[^0-9.]/g, "")) || 0);
+  const field: any = { width: "100%", border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 12px", fontSize: 15, fontWeight: 700, boxSizing: "border-box", outline: "none", fontFamily: "inherit" };
+  return (
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.35)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 20, width: 340, maxWidth: "100%", boxShadow: "0 20px 60px rgba(15,23,42,.3)" }}>
+        <div style={{ fontWeight: 900, fontSize: 16, color: INK }}>{data.treatment}</div>
+        <div style={{ fontSize: 12.5, color: MUTE, marginTop: 3, marginBottom: 14 }}>Tooth #{data.teeth.join(", ")} · {data.teeth.length} tooth{data.teeth.length !== 1 ? "s" : ""}</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: MUTE, marginBottom: 4, textTransform: "uppercase" as const }}>Rate (₹)</div>
+            <input autoFocus type="text" inputMode="numeric" value={data.rate} onChange={e => onChange({ ...data, rate: num(e.target.value) })} style={field} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: MUTE, marginBottom: 4, textTransform: "uppercase" as const }}>Discount (₹)</div>
+            <input type="text" inputMode="numeric" value={data.discount} onChange={e => onChange({ ...data, discount: num(e.target.value) })} style={field} />
+          </div>
+        </div>
+        <div style={{ marginTop: 14, padding: "10px 14px", background: `${A}0D`, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: MUTE }}>Patient pays</span>
+          <span style={{ fontSize: 20, fontWeight: 900, color: A }}>₹{final.toLocaleString("en-IN")}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={onCancel} style={{ flex: 1, background: "#fff", color: MUTE, border: `1.5px solid ${LINE}`, borderRadius: 12, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button onClick={onConfirm} style={{ flex: 2, background: A, color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Add to plan ✓</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ClinicalToothTab({
-  W, A, show, reload, patientId, clinicId,
+  W, A, show, reload, patientId, clinicId, aptId, isSpec = false,
   issueCatalog, setIssueCatalog, examCatalog, setExamCatalog, diagCatalog, setDiagCatalog,
   catalog, setCatalog,
   chartSelectedTeeth, setChartSelectedTeeth,
   chartMultiSelect, setChartMultiSelect,
   chartChild, setChartChild,
   chartRegion, setChartRegion,
-  onJumpToPlan,
   onEditPlanItem,
   onWorkspacePatch,
+  onJumpToPlan,
 }: any) {
   const activeTeeth = chartSelectedTeeth;
   const primaryTooth = activeTeeth.length === 1 ? activeTeeth[0] : (activeTeeth[0] ?? null);
-  const [timeline, setTimeline] = useState<any[]>([]);
-  const [tlLoading, setTlLoading] = useState(false);
+  // Undo + visual pulse feedback on every add (mis-taps happen constantly chairside)
+  const [undoAction, setUndoAction] = useState<{ label: string; undo: () => Promise<void> } | null>(null);
+  const [pulsingTeeth, setPulsingTeeth] = useState<number[]>([]);
+  const [hoverTooth, setHoverTooth] = useState<number | null>(null);
+  const [pricePopover, setPricePopover] = useState<{ treatment: string; teeth: number[]; procMatch: any; rate: number; discount: number } | null>(null);
+  const [chartView, setChartView] = useState<"2d" | "3d">("2d");
+  // RVG / photo uploads keyed by tooth number
+  const [toothImages, setToothImages] = useState<Map<number, any[]>>(new Map());
+  const [uploadingTooth, setUploadingTooth] = useState<number | null>(null);
+  const rvgInputRef = useRef<HTMLInputElement>(null);
+  const rvgTargetTooth = useRef<number | null>(null);
+  const clinicalPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chartView === "3d" && activeTeeth.length > 0) {
+      const t = setTimeout(() => {
+        clinicalPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 80);
+      return () => clearTimeout(t);
+    }
+  }, [activeTeeth.join(","), chartView]); // eslint-disable-line
+
+  const loadToothImages = useCallback(async () => {
+    try {
+      const uploads = await api.listPatientUploads(patientId);
+      const map = new Map<number, any[]>();
+      (uploads || []).forEach((u: any) => {
+        if (u.tooth_number == null) return;
+        const arr = map.get(u.tooth_number) || [];
+        arr.push({ id: u.id, url: u.file_url, thumb: u.file_type === "image" ? u.file_url : null });
+        map.set(u.tooth_number, arr);
+      });
+      setToothImages(map);
+    } catch { /* non-fatal */ }
+  }, [patientId]);
+  useEffect(() => { loadToothImages(); }, [loadToothImages]);
+
+  const triggerRvgUpload = (tooth: number) => {
+    rvgTargetTooth.current = tooth;
+    rvgInputRef.current?.click();
+  };
+  const onRvgFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const tooth = rvgTargetTooth.current;
+    e.target.value = "";
+    if (!file || tooth == null) return;
+    setUploadingTooth(tooth);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("tooth_number", String(tooth));
+      form.append("file_kind", "rvg");
+      form.append("caption", `Tooth ${tooth}`);
+      if (aptId) form.append("appointment_id", aptId);
+      await api.uploadPatientFile(patientId, form);
+      show(`📷 Photo attached to tooth #${tooth}`);
+      await loadToothImages();
+    } catch (err: any) { show("Upload failed: " + err.message); }
+    finally { setUploadingTooth(null); }
+  };
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushUndo = useCallback((label: string, undo: () => Promise<void>) => {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoAction({ label, undo });
+    undoTimer.current = setTimeout(() => setUndoAction(null), 6000);
+  }, []);
+  const pulse = useCallback((teeth: number[]) => {
+    setPulsingTeeth(teeth);
+    setTimeout(() => setPulsingTeeth([]), 2000);
+  }, []);
   const [examSearch, setExamSearch] = useState("");
   const [diagSearch, setDiagSearch] = useState("");
   const [treatSearch, setTreatSearch] = useState("");
   const [customTreat, setCustomTreat] = useState("");
   const [learnedDiags, setLearnedDiags] = useState<string[]>([]);
   const [learnedTreats, setLearnedTreats] = useState<string[]>([]);
-
   const tts = W.tooth_treatments || [];
   const tcs = W.tooth_conditions || [];
   const tex = W.tooth_examinations || [];
@@ -103,12 +204,6 @@ export function ClinicalToothTab({
       c: states.flatMap((s, i) => s.c.map((c: any) => ({ ...c, tooth: activeTeeth[i] }))),
     };
   }, [activeTeeth, tts, tcs, tex, tdx]); // eslint-disable-line
-
-  useEffect(() => {
-    if (!primaryTooth) { setTimeline([]); return; }
-    setTlLoading(true);
-    api.wsToothTimeline(patientId, primaryTooth).then((r: any) => setTimeline(r.events || [])).catch(() => setTimeline([])).finally(() => setTlLoading(false));
-  }, [primaryTooth, patientId]);
 
   useEffect(() => {
     const findings = aggregateState?.ex.map((e: any) => e.finding) || [];
@@ -147,13 +242,33 @@ export function ClinicalToothTab({
     return map;
   }, [W?.tooth_treatments]);
 
+  // Per-tooth summary cards: every tooth that has any exam / diagnosis / treatment.
+  const perToothCards = useMemo(() => {
+    const teeth = new Set<number>();
+    [...(W?.tooth_examinations || []), ...(W?.tooth_diagnoses || []), ...(W?.tooth_treatments || [])].forEach((r: any) => {
+      const t = r.tooth ?? r.tooth_number; if (t) teeth.add(t);
+    });
+    return Array.from(teeth).sort((a, b) => a - b).map(n => ({
+      tooth: n,
+      exam: (W?.tooth_examinations || []).filter((e: any) => (e.tooth ?? e.tooth_number) === n).map((e: any) => e.finding).filter(Boolean),
+      diag: (W?.tooth_diagnoses || []).filter((d: any) => (d.tooth ?? d.tooth_number) === n).map((d: any) => d.diagnosis).filter(Boolean),
+      tx: (W?.tooth_treatments || []).filter((t: any) => (t.tooth ?? t.tooth_number) === n).map((t: any) => ({ name: t.treatment_name || t.treatment || "", status: t.status })).filter((t: any) => t.name),
+    }));
+  }, [W?.tooth_examinations, W?.tooth_diagnoses, W?.tooth_treatments]);
+
   const toothColor = (n: number) => {
     const st = toothState(n);
     const treatments = st.t;
     const primary = treatments[0];
     const kind = (primary?.treatment_kind || classifyKind(primary?.treatment || primary?.treatment_name || "")) as any;
     const label = (toothLabels.get(n) || []).slice(0, 2).join("+");
-    const base = { hasIssue: st.c.length > 0, kind: kind !== "other" && kind !== "scaling" ? kind : null, label: label || undefined, done: st.done, prog: st.prog, planned: st.planned };
+    // Structured hover card — exam / diagnosis / treatment on this tooth
+    const card = {
+      exam: st.ex.map((e: any) => e.finding).filter(Boolean),
+      diag: st.dx.map((d: any) => d.diagnosis).filter(Boolean),
+      tx: st.t.map((t: any) => ({ name: t.treatment_name || t.treatment || "", status: t.status })).filter((t: any) => t.name),
+    };
+    const base = { hasIssue: st.c.length > 0, kind: kind !== "other" && kind !== "scaling" ? kind : null, label: label || undefined, done: st.done, prog: st.prog, planned: st.planned, card };
     if (st.done) return { ...base, bg: "#D1FAE5", border: "#10B981" };
     if (st.prog) return { ...base, bg: "#FEF3C7", border: "#F59E0B" };
     if (st.planned) return { ...base, bg: A + "15", border: A };
@@ -168,8 +283,16 @@ export function ClinicalToothTab({
     const teeth = targetTeeth();
     if (!teeth.length) { show("Select tooth/teeth first"); return; }
     try {
-      for (const t of teeth) await api.wsAddToothExam(patientId, { tooth_number: t, finding });
-      show(`✓ Exam: ${finding} → ${teeth.join(", ")}`);
+      const ids: string[] = [];
+      for (const t of teeth) {
+        const r = await api.wsAddToothExam(patientId, { tooth_number: t, finding });
+        if (r?.id) ids.push(r.id);
+      }
+      pulse(teeth);
+      pushUndo(`Exam: ${finding} → #${teeth.join(", ")}`, async () => {
+        for (const id of ids) await api.wsRemoveToothExam(id).catch(() => {});
+        reload();
+      });
       reload();
     } catch (e: any) { show("Error: " + e.message); }
   };
@@ -179,34 +302,56 @@ export function ClinicalToothTab({
     if (!teeth.length) { show("Select tooth/teeth first"); return; }
     const linkedExams = aggregateState?.ex.map((e: any) => e.finding) || [];
     try {
+      const ids: string[] = [];
       for (const t of teeth) {
-        await api.wsAddToothDiagnosis(patientId, { tooth_number: t, diagnosis, linked_exams: linkedExams });
+        const r = await api.wsAddToothDiagnosis(patientId, { tooth_number: t, diagnosis, linked_exams: linkedExams });
+        if (r?.id) ids.push(r.id);
       }
       for (const ex of linkedExams) api.wsRecordClinicalLink("exam_diag", ex, diagnosis).catch(() => {});
-      show(`✓ Dx: ${diagnosis} → ${teeth.join(", ")}`);
+      pulse(teeth);
+      pushUndo(`Dx: ${diagnosis} → #${teeth.join(", ")}`, async () => {
+        for (const id of ids) await api.wsRemoveToothDiagnosis(id).catch(() => {});
+        reload();
+      });
       reload();
     } catch (e: any) { show("Error: " + e.message); }
   };
 
-  const addToPlan = async (treatment: string) => {
+  // Step 1: tapping a treatment opens the inline price-confirm popover (rate + discount editable).
+  // Specialists never see prices — their add goes in at ₹0 for the owner to price & confirm.
+  const addToPlan = (treatment: string) => {
     const teeth = targetTeeth();
     if (!teeth.length) { show("Select tooth/teeth first"); return; }
     const procMatch = catalog.find((c: any) => c.name.toLowerCase() === treatment.toLowerCase());
+    if (isSpec) {
+      commitPlan({ treatment, teeth, procMatch, rate: 0, discount: 0 });
+      return;
+    }
+    const rate = (procMatch?.rate || 0) * teeth.length;
+    setPricePopover({ treatment, teeth, procMatch, rate, discount: 0 });
+  };
+
+  // Step 2: confirm from the popover → actually create the plan item
+  const commitPlan = async (p: { treatment: string; teeth: number[]; procMatch: any; rate: number; discount: number }) => {
+    const { treatment, teeth, procMatch } = p;
+    const rate = Math.max(0, p.rate);
+    const discount = Math.max(0, p.discount);
+    const final = Math.max(0, rate - discount);
     const examSummary = aggregateState?.ex.map((e: any) => e.finding).join(", ") || "";
     const diagSummary = aggregateState?.dx.map((d: any) => d.diagnosis).join(", ") || "";
-    const rate = (procMatch?.rate || 0) * teeth.length;
+    setPricePopover(null);
     try {
       const result = await api.wsAddPlanItem(patientId, {
         treatment_name: treatment, procedure_id: procMatch?.id || null,
         teeth, suggested_rate: rate, doctor_rate: rate,
-        discount: 0, clinic_id: clinicId, examination_summary: examSummary, diagnosis: diagSummary,
+        discount, clinic_id: clinicId, examination_summary: examSummary, diagnosis: diagSummary,
       });
       const itemId = result.item_id || result.id;
       const kind = classifyKind(treatment);
       onWorkspacePatch?.((prev: any) => {
         const newItem = {
           id: itemId, treatment_name: treatment, procedure_id: procMatch?.id || null,
-          teeth, suggested_rate: rate, doctor_rate: rate, discount: 0, final_amount: rate,
+          teeth, suggested_rate: rate, doctor_rate: rate, discount, final_amount: final,
           status: "advised", notes: null, area_label: null,
         };
         const newToothRows = teeth.map((t: number) => ({
@@ -219,18 +364,21 @@ export function ClinicalToothTab({
           tooth_treatments: [...(prev.tooth_treatments || []), ...newToothRows],
           financial: {
             ...(prev.financial || {}),
-            total_value: (prev.financial?.total_value || 0) + rate,
-            outstanding: (prev.financial?.outstanding || 0) + rate,
+            total_value: (prev.financial?.total_value || 0) + final,
+            outstanding: (prev.financial?.outstanding || 0) + final,
           },
         };
       });
       for (const dx of (aggregateState?.dx || []).map((d: any) => d.diagnosis)) {
         api.wsRecordClinicalLink("diag_treatment", dx, treatment).catch(() => {});
       }
-      show(`✅ ${treatment} → tooth ${teeth.join(", ")} — chart updated live`);
+      pulse(teeth);
+      pushUndo(`${treatment} → #${teeth.join(", ")}${final > 0 ? ` · ₹${final.toLocaleString("en-IN")}` : ""}`, async () => {
+        if (itemId) await api.wsDeletePlanItem(itemId).catch(() => {});
+        reload();
+      });
       reload().catch(() => {});
-      // IMPORTANT: Do NOT auto-jump to Plan tab. Stay here so user can add MULTIPLE treatments tooth-wise while the SVG acts as the live visual report.
-      // User can click the Review button below if they want to see the full plan.
+      show("✓ Added — review pricing on Treatment Plan tab");
     } catch (e: any) { show("Error: " + e.message); }
   };
 
@@ -286,6 +434,19 @@ export function ClinicalToothTab({
 
   const addedTreatmentNames = useMemo(() => new Set(addedTreatments.map(t => t.name.toLowerCase())), [addedTreatments]);
 
+  const treatmentRows = useMemo(() => addedTreatments.map(it => {
+    const planItem = (W.items || []).find((x: any) =>
+      x.treatment_name === it.name && (x.teeth || []).some((t: number) => activeTeeth.includes(t))
+    );
+    return { ...it, planItem: planItem ? {
+      id: planItem.id,
+      doctor_rate: planItem.doctor_rate,
+      suggested_rate: planItem.suggested_rate,
+      discount: planItem.discount,
+      final_amount: planItem.final_amount,
+    } : null };
+  }), [addedTreatments, W.items, activeTeeth]);
+
   const removeFromPlan = async (item: { name: string; itemIds: string[] }) => {
     if (!confirm(`Remove "${item.name}" from the plan?`)) return;
     try {
@@ -298,310 +459,208 @@ export function ClinicalToothTab({
     } catch (e: any) { show("Error: " + e.message); }
   };
 
-  const cycleTreatmentStatus = async (item: { name: string; itemIds: string[]; status: string }) => {
-    // advised → in_progress → completed → advised
-    const next = item.status === "advised" ? "in_progress" : item.status === "in_progress" ? "completed" : "advised";
-    try {
-      for (const id of item.itemIds) {
-        await api.wsEditPlanItem(id, { status: next });
-      }
-      show(`✓ ${item.name} → ${next}`);
-      await reload();
-    } catch (e: any) { show("Error: " + e.message); }
-  };
+  // 2D / 3D toggle — sits above the chart in both layouts
+  const viewToggle = (
+    <div style={{ display: "flex", gap: 4, background: chartView === "3d" ? "#152A47" : "#F1F5F9", borderRadius: 10, padding: 3, width: "fit-content", marginBottom: 10 }}>
+      {(["2d", "3d"] as const).map(v => (
+        <button key={v} onClick={() => setChartView(v)}
+          style={{ border: "none", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit",
+            background: chartView === v ? A : "transparent", color: chartView === v ? "#fff" : (chartView === "3d" ? "#7DA2C9" : "#64748B") }}>
+          {v === "2d" ? "2D Chart" : "✨ 3D Mouth"}
+        </button>
+      ))}
+    </div>
+  );
 
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "5fr 4fr", gap: 14, alignItems: "start" }}>
-      <div style={card}>
-        <ToothWidget
+  const toothHeroPanel = activeTeeth.length > 0 ? (
+    <GroupedToothBanner
+      teeth={activeTeeth}
+      child={chartChild}
+      accent={A}
+      variant="sidebar"
+      onFocusTooth={n => setChartSelectedTeeth([n])}
+    />
+  ) : null;
+
+  const rvgPanel = (
+    <div style={{
+      background: "#fff", borderRadius: 14, border: `1.5px solid ${LINE}`,
+      overflow: "hidden", boxShadow: "0 1px 6px rgba(15,23,42,.05)",
+    }}>
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${LINE}`, background: `linear-gradient(135deg, ${A}10, #fff)`, borderLeft: `4px solid ${A}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Camera size={17} color={A} />
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 14, color: INK }}>RVG / Photos</div>
+            <div style={{ fontSize: 11, color: MUTE }}>Attach radiographs &amp; intraoral images</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ padding: "12px 14px 14px" }}>
+        <input ref={rvgInputRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={onRvgFilePicked} />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {activeTeeth.length <= 8 ? activeTeeth.map((n: number) => {
+            const imgs = toothImages.get(n) || [];
+            return (
+              <div key={n} style={{ border: `1.5px dashed ${A}44`, borderRadius: 10, padding: 6, width: 78, background: "#fff", textAlign: "center" as const }}>
+                <div style={{ fontSize: 10, color: MUTE }}>#{n}{imgs.length ? ` · ${imgs.length}📷` : ""}</div>
+                <button disabled={uploadingTooth === n} onClick={() => triggerRvgUpload(n)}
+                  style={{ ...chipGhost(A), fontSize: 10, padding: "3px 8px", marginTop: 3, opacity: uploadingTooth === n ? 0.6 : 1 }}>
+                  <Camera size={12} /> {uploadingTooth === n ? "…" : "Attach"}
+                </button>
+              </div>
+            );
+          }) : (
+            <button onClick={() => triggerRvgUpload(activeTeeth[0])} style={chipGhost(A)}>
+              <Camera size={14} /> Attach photo to selection
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const clinicalAddPanel = activeTeeth.length > 0 && aggregateState ? (
+      <ClinicalAddPanel
+        teeth={activeTeeth}
+        accent={A}
+        multi={activeTeeth.length > 1}
+        layout="columns"
+        exams={aggregateState.ex.map((e: any) => ({ id: e.id, finding: e.finding, tooth: e.tooth }))}
+        diagnoses={aggregateState.dx.map((d: any) => ({ id: d.id, diagnosis: d.diagnosis, tooth: d.tooth }))}
+        treatments={treatmentRows}
+        onRemoveExam={id => { void api.wsRemoveToothExam(id).then(() => reload()); }}
+        onRemoveDiag={id => { void api.wsRemoveToothDiagnosis(id).then(() => reload()); }}
+        onRemoveTreatment={removeFromPlan}
+        onStatusChange={(row, status) => {
+          void (async () => {
+            for (const id of row.itemIds) await api.wsEditPlanItem(id, { status });
+            show(`✓ ${row.name} → ${status === "advised" ? "Planned" : status === "in_progress" ? "In Progress" : "Completed"}`);
+            await reload();
+          })();
+        }}
+        examSearch={examSearch}
+        onExamSearchChange={setExamSearch}
+        filteredExams={filteredExams}
+        onAddExam={name => addExam(name)}
+        onAddCustomExam={name => { addExam(name); api.wsExamCatalog().then(setExamCatalog).catch(() => {}); }}
+        diagSearch={diagSearch}
+        onDiagSearchChange={setDiagSearch}
+        filteredDiags={filteredDiags}
+        learnedDiags={learnedDiags}
+        onAddDiag={name => addDiag(name)}
+        onAddCustomDiag={name => { addDiag(name); api.wsDiagCatalog().then(setDiagCatalog).catch(() => {}); }}
+        treatSearch={treatSearch}
+        onTreatSearchChange={setTreatSearch}
+        filteredTreats={filteredCatalogTreats}
+        suggestedTreats={allSuggestedTreats}
+        addedTreatmentNames={addedTreatmentNames}
+        catalog={catalog}
+        onAddTreatment={name => addToPlan(name)}
+        customTreat={customTreat}
+        onCustomTreatChange={setCustomTreat}
+        onAddCustomTreatment={addCustomTreatment}
+        fmt={fmt}
+        rvgSlot={rvgPanel}
+      />
+  ) : null;
+
+  const emptyClinicalHint = (
+    <div style={{
+      ...card, textAlign: "center", padding: "32px 24px",
+      background: chartView === "3d" ? "linear-gradient(160deg, #0A1628, #12253F)" : `linear-gradient(160deg, ${A}08, #fff)`,
+      border: chartView === "3d" ? "1px solid #1E3A5F" : `2px dashed ${A}44`,
+      color: chartView === "3d" ? "#7DA2C9" : MUTE,
+    }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>🦷</div>
+      <div style={{ fontSize: 18, fontWeight: 900, color: chartView === "3d" ? "#E6EEF8" : INK, marginBottom: 8 }}>Tap a tooth to start</div>
+      <div style={{ fontSize: 14, lineHeight: 1.6, maxWidth: 280, margin: "0 auto" }}>
+        Select a tooth in the {chartView === "3d" ? "3D mouth" : "chart"}. Record observation, diagnosis, and treatment right here.
+      </div>
+    </div>
+  );
+
+  const chartCard = (
+    <div style={card}>
+      <ToothWidget
+        child={chartChild}
+        onChildChange={setChartChild}
+        multiSelect={chartMultiSelect}
+        onMultiSelectChange={setChartMultiSelect}
+        region={chartRegion}
+        onRegionChange={setChartRegion}
+        selected={chartSelectedTeeth}
+        onSelectedChange={setChartSelectedTeeth}
+        toothColor={toothColor}
+        accent={A}
+        pulsingTeeth={pulsingTeeth}
+        focusMode={activeTeeth.length === 1}
+        hoverTooth={hoverTooth}
+        onHoverTooth={setHoverTooth}
+        title="Select Tooth"
+        headerExtra={
+          activeTeeth.length > 0 ? (
+            <div style={{ fontSize: 11, color: A, fontWeight: 700, padding: "4px 8px", background: `${A}10`, borderRadius: 8 }}>
+              Selection updates clinical panels below
+            </div>
+          ) : null
+        }
+      />
+      <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap", fontSize: 11, color: MUTE, fontWeight: 700 }}>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#FEFCE8", border: "1.5px solid #EAB308", marginRight: 4 }} />Examined</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#FFF7ED", border: "1.5px solid #F97316", marginRight: 4 }} />Diagnosed</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: A + "15", border: "1.5px solid " + A, marginRight: 4 }} />Planned</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#D1FAE5", border: "1.5px solid #10B981", marginRight: 4 }} />Done</span>
+      </div>
+    </div>
+  );
+
+  const chartAndHeroRow = (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: chartView === "3d" ? "minmax(0, 1.15fr) minmax(260px, 320px)" : "minmax(0, 1fr) minmax(260px, 320px)",
+      gap: 14, alignItems: "start",
+    }}>
+      {chartView === "3d" ? (
+        <Tooth3DPanel
           child={chartChild}
           onChildChange={setChartChild}
-          multiSelect={chartMultiSelect}
-          onMultiSelectChange={setChartMultiSelect}
-          region={chartRegion}
-          onRegionChange={setChartRegion}
           selected={chartSelectedTeeth}
           onSelectedChange={setChartSelectedTeeth}
           toothColor={toothColor}
+          multiSelect={chartMultiSelect}
           accent={A}
-          headerExtra={
-            activeTeeth.length > 0 ? (
-              <div style={{ fontSize: 11, color: A, fontWeight: 700, padding: "4px 8px", background: `${A}10`, borderRadius: 8 }}>
-                Select teeth → record below (SVG updates live)
-              </div>
-            ) : null
-          }
+          chartOnly={activeTeeth.length > 0}
         />
+      ) : chartCard}
+      <div style={{ position: "sticky", top: 12 }}>
+        {toothHeroPanel || emptyClinicalHint}
+      </div>
+    </div>
+  );
 
-        {/* Teeth Images / RVG Photos - "image" attachment for selected teeth */}
-        {activeTeeth.length > 0 && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px dashed ${LINE}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6, fontWeight: 700, fontSize: 12, color: INK }}>
-              <Camera size={15} color={A} /> Teeth Images / RVG for #{activeTeeth.join(", ")}
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {activeTeeth.map((n: number) => (
-                <div key={n} style={{ border: `1.5px dashed ${A}44`, borderRadius: 10, padding: 6, width: 78, background: "#fff", textAlign: "center" as const }}>
-                  <div style={{ fontSize: 10, color: MUTE }}>#{n}</div>
-                  <button onClick={() => show?.(`📎 Attach RVG/photo for tooth #${n}`)} style={{ ...chipGhost(A), fontSize: 10, padding: "3px 8px", marginTop: 3 }}>
-                    <Camera size={12} /> Attach
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 9.5, color: MUTE, marginTop: 4 }}>Photos link to this tooth & appear in Files tab.</div>
-          </div>
-        )}
+  return (
+    <div>
+      {viewToggle}
 
-        <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap", fontSize: 11, color: MUTE, fontWeight: 700 }}>
-          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#FEFCE8", border: "1.5px solid #EAB308", marginRight: 4 }} />Examined only</span>
-          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#FFF7ED", border: "1.5px solid #F97316", marginRight: 4 }} />Diagnosed</span>
-          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: A + "15", border: "1.5px solid " + A, marginRight: 4 }} />Planned / In progress / Done (green)</span>
-          <span style={{ color: "#0EA5E9", fontWeight: 900 }}>● Bright cyan outline + "S" badge = CURRENTLY SELECTED (the tooth you're recording for right now)</span>
-        </div>
-        <div style={{ fontSize: 10.5, color: "#059669", marginTop: 4, fontWeight: 600 }}>
-          Tip: Select a tooth → add observations below → the chart colors it permanently. Switch teeth → previous reverts to its observation color (easy to tell at a glance).
-        </div>
-        {toothLabels.size > 0 && (
-          <div style={{ marginTop: 10, padding: "8px 10px", background: SOFT, borderRadius: 10, border: `1px solid ${LINE}` }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: MUTE, letterSpacing: 0.4, marginBottom: 6, textTransform: "uppercase" as const }}>Planned treatments on chart</div>
-            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
-              {Array.from(toothLabels.entries()).sort((a, b) => a[0] - b[0]).map(([tooth, tags]) => (
-                <button key={tooth} type="button" onClick={() => setChartSelectedTeeth([tooth])}
-                  style={{ border: `1.5px solid ${A}44`, background: "#fff", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 11.5, fontWeight: 800, color: INK, fontFamily: "inherit" }}>
-                  <span style={{ color: A }}>#{tooth}</span> {tags.join(" + ")}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+      <div ref={clinicalPanelRef} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {chartAndHeroRow}
+        {clinicalAddPanel}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {activeTeeth.length === 0 && (
-          <div style={card}>
-            <div style={{ fontSize: 14, color: MUTE, lineHeight: 1.6 }}>
-              👈 <b>Select tooth/teeth</b> on the chart — use multi-select or region buttons (Full Mouth, Upper Right…).<br />
-              <span style={{ fontSize: 12.5 }}>Workflow: <b>Examine → Diagnose → Treatment Plan</b> — selections carry into plan edit.</span>
-            </div>
-          </div>
-        )}
+      {undoAction && (
+        <UndoToast
+          message={`✓ ${undoAction.label}`}
+          accent={A}
+          onUndo={async () => { const u = undoAction; setUndoAction(null); await u.undo(); show("↩ Undone"); }}
+          onDismiss={() => setUndoAction(null)}
+        />
+      )}
 
-        {activeTeeth.length > 0 && aggregateState && <>
-          <div style={{ ...card, padding: "14px 18px" }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: INK }}>
-              {activeTeeth.length === 1 ? `Tooth ${activeTeeth[0]}` : `${activeTeeth.length} teeth selected`}
-            </div>
-            <div style={{ fontSize: 12, color: MUTE, marginTop: 4 }}>{activeTeeth.join(" · ")}</div>
-            <div style={{ fontSize: 11.5, color: "#059669", marginTop: 6, fontWeight: 600 }}>
-              The chart on the left is your live SVG report — teeth turn colored only after you add observations here.
-            </div>
-            <button type="button" onClick={() => onJumpToPlan?.()} style={{ ...btn(A), marginTop: 10, padding: "8px 14px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              Review Full Treatment Plan (all teeth) →
-            </button>
-          </div>
-
-          <div style={card}>
-            <SectionTitle>🔍 On Examination</SectionTitle>
-            <p style={{ margin: "0 0 8px", fontSize: 12, color: MUTE, fontStyle: "italic" }}>Select from suggestions or add new</p>
-            {aggregateState.ex.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                {aggregateState.ex.map((e: any) => (
-                  <ChipX key={e.id} text={`${e.finding}${activeTeeth.length > 1 ? ` (#${e.tooth})` : ""}`} bg="#FEF3C7" color="#92400E"
-                    onX={async () => { await api.wsRemoveToothExam(e.id).catch(() => {}); reload(); }} />
-                ))}
-              </div>
-            )}
-            <input value={examSearch} onChange={e => setExamSearch(e.target.value)} placeholder="Search & Select"
-              style={{ ...inp, fontSize: 13, marginBottom: 8 }} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, maxHeight: 140, overflow: "auto" }}>
-              {filteredExams.slice(0, 20).map((e: any) => (
-                <button key={e.id} type="button" onClick={() => { addExam(e.name); setExamSearch(""); }} style={chipGhost("#EAB308")}>+ {e.name}</button>
-              ))}
-            </div>
-            {examSearch.trim() && !examCatalog.some((e: any) => e.name.toLowerCase() === examSearch.trim().toLowerCase()) && (
-              <button type="button" onClick={() => { addExam(examSearch.trim()); api.wsExamCatalog().then(setExamCatalog).catch(() => {}); setExamSearch(""); }}
-                style={{ ...chipGhost("#8B5CF6"), marginTop: 6 }}>+ Add custom: &quot;{examSearch.trim()}&quot;</button>
-            )}
-          </div>
-
-          <div style={card}>
-            <SectionTitle>🏷 Diagnosis</SectionTitle>
-            <p style={{ margin: "0 0 8px", fontSize: 12, color: MUTE, fontStyle: "italic" }}>Select from suggestions or type diagnosis</p>
-            {aggregateState.dx.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                {aggregateState.dx.map((d: any) => (
-                  <ChipX key={d.id} text={d.diagnosis} bg="#FFEDD5" color="#9A3412"
-                    onX={async () => { await api.wsRemoveToothDiagnosis(d.id).catch(() => {}); reload(); }} />
-                ))}
-              </div>
-            )}
-            {learnedDiags.length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: A, marginBottom: 4 }}>💡 Learned from your observations</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                  {learnedDiags.filter(n => !aggregateState.dx.some((d: any) => d.diagnosis.toLowerCase() === n.toLowerCase())).slice(0, 8).map(n => (
-                    <button key={n} type="button" onClick={() => addDiag(n)} style={chipGhost(A)}>+ {n}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <input value={diagSearch} onChange={e => setDiagSearch(e.target.value)} placeholder="Search & Select"
-              style={{ ...inp, fontSize: 13, marginBottom: 8 }} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, maxHeight: 120, overflow: "auto" }}>
-              {filteredDiags.slice(0, 15).map((d: any) => {
-                const already = aggregateState.dx.some((x: any) => x.diagnosis.toLowerCase() === d.name.toLowerCase());
-                return already ? null : <button key={d.id} type="button" onClick={() => { addDiag(d.name); setDiagSearch(""); }} style={chipGhost("#F97316")}>+ {d.name}</button>;
-              })}
-            </div>
-            {diagSearch.trim() && !diagCatalog.some((d: any) => d.name.toLowerCase() === diagSearch.trim().toLowerCase()) && (
-              <button type="button" onClick={() => { addDiag(diagSearch.trim()); api.wsDiagCatalog().then(setDiagCatalog).catch(() => {}); setDiagSearch(""); }}
-                style={{ ...chipGhost("#8B5CF6"), marginTop: 6 }}>+ Add custom: &quot;{diagSearch.trim()}&quot;</button>
-            )}
-          </div>
-
-          <div style={card}>
-            <SectionTitle>💡 Treatment Suggested <span style={{ color: "#DC2626" }}>*</span></SectionTitle>
-            <p style={{ margin: "0 0 8px", fontSize: 12, color: MUTE, fontStyle: "italic" }}>Add as many treatments as you want for these teeth — right here. The big SVG chart on the left is your live visual report (colors update after each add). Use the "Review Full Plan" button above only when you're ready to see everything.</p>
-
-            {/* ─── Already added pills — bidirectional sync with Plan tab. Now with explicit EDIT from here (dropdown-like list + edit button) so you can tweak rate/teeth/notes without leaving the tooth/SVG view first. The lifted modal will open as overlay. */}
-            {addedTreatments.length > 0 && (
-              <div style={{ background: `${A}0A`, border: `1.5px solid ${A}33`, borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: A, letterSpacing: 0.5, marginBottom: 6, textTransform: "uppercase" as const }}>
-                  ✓ Already added ({addedTreatments.length}) — for tooth {activeTeeth.join(", ")} — click Edit to change details
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
-                  {addedTreatments.map(it => {
-                    const statusColor = it.status === "completed" ? "#10B981" : it.status === "in_progress" ? "#F59E0B" : A;
-                    const statusIcon = it.status === "completed" ? "✓" : it.status === "in_progress" ? "⏳" : "📝";
-                    return (
-                      <span key={it.name} style={{
-                        background: "#fff", color: statusColor, border: `1.5px solid ${statusColor}55`,
-                        padding: "5px 4px 5px 12px", borderRadius: 999, fontSize: 12, fontWeight: 800,
-                        display: "inline-flex", alignItems: "center", gap: 4,
-                      }}>
-                        <button type="button" onClick={() => cycleTreatmentStatus(it)}
-                          title={`Click to cycle status (now: ${it.status})`}
-                          style={{ background: "transparent", border: "none", cursor: "pointer", color: statusColor, padding: 0, fontSize: 13, fontWeight: 900 }}>
-                          {statusIcon}
-                        </button>
-                        {it.name}
-                        {/* Edit from here (the "dropdown" context in tooth view) */}
-                        <button type="button" onClick={() => {
-                          if (onEditPlanItem) {
-                            // Find the full item from W to pass to modal (it has all fields like notes, exact rates)
-                            const fullItem = (W.items || []).find((x: any) => x.treatment_name === it.name && (x.teeth || []).some((t: number) => activeTeeth.includes(t)));
-                            onEditPlanItem(fullItem || { treatment_name: it.name, teeth: it.teeth });
-                          }
-                        }} title="Edit this treatment (rate, teeth, notes, etc.)"
-                          style={{ background: statusColor + "22", border: "none", cursor: "pointer", color: statusColor, marginLeft: 2, padding: "0 6px", fontSize: 11, fontWeight: 900, borderRadius: 4 }}>
-                          ✎ Edit
-                        </button>
-                        <button type="button" onClick={() => removeFromPlan(it)} title="Remove from plan"
-                          style={{ background: statusColor + "22", border: "none", cursor: "pointer", color: statusColor, marginLeft: 2, width: 18, height: 18, borderRadius: "50%", fontSize: 11, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                          ✕
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ─── Search OR dropdown — full catalog ─── */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" as const }}>
-              <input value={treatSearch} onChange={e => setTreatSearch(e.target.value)} placeholder="🔍 Search treatment by name…"
-                style={{ ...inp, flex: 1, minWidth: 200, fontSize: 13, marginBottom: 0 }} />
-              <select value="" onChange={e => {
-                if (!e.target.value) return;
-                const name = e.target.value;
-                const used = addedTreatmentNames.has(name.toLowerCase());
-                if (used && onEditPlanItem) {
-                  // Edit from dropdown: find matching item for the current teeth and open edit modal (overlay)
-                  const fullItem = (W.items || []).find((x: any) => x.treatment_name === name && (x.teeth || []).some((t: number) => activeTeeth.includes(t)));
-                  onEditPlanItem(fullItem || { treatment_name: name, teeth: activeTeeth });
-                } else {
-                  addToPlan(name);
-                }
-              }}
-                style={{ ...inp, width: 200, fontSize: 13, marginBottom: 0, cursor: "pointer", background: "#fff" }}>
-                <option value="">＋ Pick from catalog… (or edit if already added)</option>
-                {catalog.map((c: any) => {
-                  const used = addedTreatmentNames.has(c.name.toLowerCase());
-                  return <option key={c.id} value={c.name}>{used ? "✎ Edit " : "＋ Add "}{c.name}{c.rate ? ` — ${fmt(c.rate)}` : ""}</option>;
-                })}
-              </select>
-            </div>
-
-            {treatSearch && (
-              <div style={{ marginBottom: 10, border: `1px solid ${LINE}`, borderRadius: 12, maxHeight: 200, overflow: "auto" as const }}>
-                {filteredCatalogTreats.length === 0 && (
-                  <div style={{ padding: "10px 14px", fontSize: 12.5, color: MUTE }}>No match — use Custom below ↓</div>
-                )}
-                {filteredCatalogTreats.map((c: any) => {
-                  const used = addedTreatmentNames.has(c.name.toLowerCase());
-                  return (
-                    <button key={c.id} type="button" onClick={() => { addToPlan(c.name); setTreatSearch(""); }}
-                      style={{ display: "block", width: "100%", textAlign: "left" as const, padding: "10px 14px", border: "none", borderBottom: `1px solid ${SOFT}`, background: used ? `${A}0A` : "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
-                      {used && <span style={{ color: A, marginRight: 6 }}>✓</span>}
-                      {c.name} <span style={{ color: MUTE, fontWeight: 600 }}>{c.rate ? fmt(c.rate) : ""}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* ─── AI-suggested chips ─── */}
-            {allSuggestedTreats.length > 0 && (
-              <>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: MUTE, letterSpacing: 0.4, marginBottom: 6, textTransform: "uppercase" as const }}>
-                  🤖 Suggested for current diagnosis{learnedTreats.length > 0 ? " (learned from past visits)" : ""}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginBottom: 10 }}>
-                  {allSuggestedTreats.map(t => {
-                    const used = addedTreatmentNames.has(t.toLowerCase());
-                    return (
-                      <button key={t} type="button" disabled={used} onClick={() => addToPlan(t)} title={used ? "Already added" : `Add ${t}`}
-                        style={{
-                          border: used ? `1.5px solid ${A}` : `1.5px solid ${A}55`,
-                          background: used ? `${A}15` : "#fff",
-                          color: used ? A : INK, borderRadius: 999, padding: "8px 14px",
-                          cursor: used ? "default" : "pointer", fontWeight: 800, fontSize: 11.5,
-                          fontFamily: "inherit", textTransform: "uppercase" as const,
-                          opacity: used ? 0.7 : 1,
-                        }}>
-                        {used && "✓ "}{t.length > 24 ? t.slice(0, 22) + "…" : t}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {/* ─── Custom entry ─── */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
-              <input value={customTreat} onChange={e => setCustomTreat(e.target.value)} placeholder="Type a custom treatment name…"
-                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomTreatment(); } }}
-                style={{ ...inp, flex: 1, minWidth: 160, fontSize: 13, margin: 0 }} />
-              <button type="button" onClick={addCustomTreatment} disabled={!customTreat.trim()} style={{ ...btn("#6366F1"), padding: "10px 16px", fontSize: 13, opacity: customTreat.trim() ? 1 : 0.4 }}>+ Custom</button>
-            </div>
-          </div>
-
-          {primaryTooth && (
-            <div style={card}>
-              <SectionTitle>📋 Tooth {primaryTooth} Timeline</SectionTitle>
-              {tlLoading && <div style={{ fontSize: 13, color: MUTE }}>Loading…</div>}
-              {!tlLoading && timeline.length === 0 && <div style={{ fontSize: 13, color: MUTE }}>No history yet.</div>}
-              {!tlLoading && timeline.slice(0, 8).map((ev: any, i: number) => (
-                <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: i < timeline.length - 1 ? `1px dashed ${SOFT}` : "none" }}>
-                  <b>{ev.text}</b>
-                  <div style={{ fontSize: 11, color: MUTE }}>{ev.at ? new Date(ev.at).toLocaleDateString("en-IN") : "—"}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>}
-      </div>
+      {pricePopover && (
+        <PriceConfirm A={A} data={pricePopover} onChange={setPricePopover}
+          onCancel={() => setPricePopover(null)} onConfirm={() => commitPlan(pricePopover)} />
+      )}
     </div>
   );
 }

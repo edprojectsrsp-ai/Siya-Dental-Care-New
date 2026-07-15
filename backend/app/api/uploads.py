@@ -39,6 +39,22 @@ def _category(mime: str) -> str:
     return "unknown"
 
 
+# Extensions that may land on disk, per detected category. The client-supplied
+# extension is never trusted on its own (an .html "image" would be stored XSS).
+_CATEGORY_EXTS = {
+    "image": {".jpg", ".jpeg", ".png", ".webp", ".gif"},
+    "video": {".mp4", ".webm", ".mov"},
+    "document": {".pdf"},
+}
+_CATEGORY_DEFAULT_EXT = {"image": ".jpg", "video": ".mp4", "document": ".pdf"}
+
+
+def _safe_ext_for(file_type: str, filename: str | None) -> str:
+    ext = os.path.splitext(filename or "")[1].lower()
+    allowed = _CATEGORY_EXTS.get(file_type, set())
+    return ext if ext in allowed else _CATEGORY_DEFAULT_EXT.get(file_type, ".bin")
+
+
 async def _ensure_patient(db: AsyncSession, patient_id: UUID) -> None:
     res = await db.execute(text("SELECT id FROM patients WHERE id = :id"), {"id": patient_id})
     if res.first() is None:
@@ -100,7 +116,7 @@ async def upload_patient_file(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large. Max size is 20MB.")
 
-    ext = os.path.splitext(file.filename or "")[1]
+    ext = _safe_ext_for(file_type, file.filename)
     unique_name = f"{uuid.uuid4().hex}{ext}"
     file_path = _patient_dir(patient_id) / unique_name
     file_path.write_bytes(contents)
@@ -189,6 +205,71 @@ async def serve_upload(
     if ".." in filename or "/" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
     path = _patient_dir(patient_id) / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path)
+
+
+# ── Share links: HMAC-signed, expiring, no login needed ─────────────────
+# Upload ids are sequential ints, so a raw public serve-by-id would be
+# enumerable. The signature binds id + expiry to SECRET_KEY.
+
+def _share_sig(upload_id: int, expires: int) -> str:
+    import hashlib
+    import hmac as hmac_mod
+
+    from app.core.config import settings
+
+    msg = f"upload-share:{upload_id}:{expires}".encode()
+    return hmac_mod.new(settings.SECRET_KEY.encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+@router.get("/{upload_id}/share-link")
+async def create_share_link(
+    upload_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    staff=Depends(get_current_staff),
+):
+    """Staff-only: mint a 7-day public link for one upload (to WhatsApp a patient their X-ray)."""
+    import time
+
+    row = (await db.execute(
+        text("SELECT id, file_name FROM patient_uploads WHERE id = :id"), {"id": upload_id}
+    )).mappings().one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    expires = int(time.time()) + 7 * 86400
+    sig = _share_sig(upload_id, expires)
+    base = str(request.base_url).rstrip("/")
+    return {
+        "url": f"{base}/api/uploads/shared/{upload_id}/{expires}/{sig}",
+        "file_name": row["file_name"],
+        "expires_at": expires,
+    }
+
+
+@router.get("/shared/{upload_id}/{expires}/{sig}", dependencies=[])
+async def serve_shared_upload(
+    upload_id: int,
+    expires: int,
+    sig: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public: serve an upload if the signed link is valid and not expired."""
+    import hmac as hmac_mod
+    import time
+
+    if time.time() > expires:
+        raise HTTPException(status_code=410, detail="Link expired — ask the clinic to resend")
+    if not hmac_mod.compare_digest(sig, _share_sig(upload_id, expires)):
+        raise HTTPException(status_code=403, detail="Invalid link")
+    row = (await db.execute(
+        text("SELECT patient_id, file_path FROM patient_uploads WHERE id = :id"), {"id": upload_id}
+    )).mappings().one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = UPLOAD_DIR / row["file_path"]
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path)

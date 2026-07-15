@@ -5,6 +5,12 @@ import { ToothChart, toothLabel } from "./ToothChart";
 
 const inputStyle:any = {width:"100%",border:"2px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:15,outline:"none",boxSizing:"border-box",marginBottom:10,fontFamily:"inherit"};
 
+/** Inline validation/error banner — replaces jarring native alert() */
+function ErrBanner({msg}:{msg:string}){
+  if(!msg)return null;
+  return <div style={{background:"#FEE2E2",color:"#991B1B",borderRadius:10,padding:"9px 12px",fontSize:12.5,fontWeight:700,marginBottom:10}}>⚠ {msg}</div>;
+}
+
 // ─── GENERIC MODAL WRAPPER ──────────────────────────
 export function Modal({title,onClose,children}:{title:string,onClose:()=>void,children:any}){
   return(
@@ -31,16 +37,17 @@ export function MedicineModal({med,onClose,onSaved}:{med?:any,onClose:()=>void,o
   const [instr,setInstr]=useState(med?.instructions||"");
   const [contra,setContra]=useState(med?.contraindications||"");
   const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
   const cats=["Antibiotic","Painkiller","Antacid","Mouthwash","Topical","Topical Steroid","Antifungal","Anti-allergy","Steroid","Oral Care","Home Remedy"];
 
   const save=async()=>{
-    if(!name){alert("Name required");return;}
-    setSaving(true);
+    if(!name){setErr("Name required");return;}
+    setErr("");setSaving(true);
     try{
       if(med?.id) await api.updateMedicine(med.id,{name,category,default_strength:strength,default_dose:dose,default_frequency:freq,default_duration:dur,instructions:instr});
       else await api.addMedicine({name,category,default_strength:strength,default_dose:dose,default_frequency:freq,default_duration:dur,instructions:instr,strengths:[strength],frequencies:[freq],contraindications:contra});
       onSaved();onClose();
-    }catch(e:any){alert(e.message);}
+    }catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -55,6 +62,7 @@ export function MedicineModal({med,onClose,onSaved}:{med?:any,onClose:()=>void,o
     </div>
     <input style={inputStyle} placeholder="Instructions" value={instr} onChange={e=>setInstr(e.target.value)}/>
     <input style={inputStyle} placeholder="Contraindications (optional)" value={contra} onChange={e=>setContra(e.target.value)}/>
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#6366F1",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",marginTop:8}}>{saving?"Saving...":med?"Update Medicine":"Add Medicine"}</button>
   </Modal>);
 }
@@ -70,15 +78,16 @@ export function ProcedureModal({proc,onClose,onSaved}:{proc?:any,onClose:()=>voi
   const [saving,setSaving]=useState(false);
   const cats=["Diagnostic","Preventive","Restorative","Endodontics","Prosthodontics","Surgery","Implantology","Orthodontics","Periodontics","Pediatric","Cosmetic"];
 
+  const [err,setErr]=useState("");
   const save=async()=>{
-    if(!name){alert("Name required");return;}
-    setSaving(true);
+    if(!name){setErr("Name required");return;}
+    setErr("");setSaving(true);
     try{
       const data={name,category,default_cost:parseFloat(cost)||0,cost_min:parseFloat(costMin)||0,cost_max:parseFloat(costMax)||0,followup_days:followup?parseInt(followup):null};
       if(proc?.id) await api.updateProcedure(proc.id,data);
       else await api.addProcedure({...data,common_advice:[],medicine_ids:[]});
       onSaved();onClose();
-    }catch(e:any){alert(e.message);}
+    }catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -91,6 +100,7 @@ export function ProcedureModal({proc,onClose,onSaved}:{proc?:any,onClose:()=>voi
       <input style={inputStyle} placeholder="Max Cost ₹" type="number" value={costMax} onChange={e=>setCostMax(e.target.value)}/>
     </div>
     <input style={inputStyle} placeholder="Follow-up days (optional)" type="number" value={followup} onChange={e=>setFollowup(e.target.value)}/>
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#6366F1",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",marginTop:8}}>{saving?"Saving...":proc?"Update":"Add Procedure"}</button>
   </Modal>);
 }
@@ -112,12 +122,13 @@ export function PaymentModal({patientId,planId,clinicId,balance,appointmentId,on
 
   const total=splits.reduce((s,sp)=>s+parseFloat(sp.amount||"0"),0);
 
+  const [err,setErr]=useState("");
   const save=async()=>{
     const validSplits=splits.filter(s=>parseFloat(s.amount||"0")>0);
-    if(validSplits.length===0){alert("Enter at least one payment amount");return;}
+    if(validSplits.length===0){setErr("Enter at least one payment amount");return;}
     const upiMissingRef=validSplits.find(s=>s.mode==="upi"&&parseFloat(s.amount||"0")>0&&!s.reference?.trim());
-    if(upiMissingRef){alert("UPI reference is required for UPI payments");return;}
-    setSaving(true);
+    if(upiMissingRef){setErr("UPI reference is required for UPI payments");return;}
+    setErr("");setSaving(true);
     try{
       if(validSplits.length===1){
         // Single mode: use original endpoint for back-compat
@@ -133,7 +144,7 @@ export function PaymentModal({patientId,planId,clinicId,balance,appointmentId,on
           remarks:remarks||undefined});
       }
       onSaved();onClose();
-    }catch(e:any){alert(e.message);}
+    }catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -161,6 +172,7 @@ export function PaymentModal({patientId,planId,clinicId,balance,appointmentId,on
     </div>}
 
     <input style={inputStyle} placeholder="Remarks (optional)" value={remarks} onChange={e=>setRemarks(e.target.value)}/>
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#10B981",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>
       {saving?"Recording...":`✅ Record Payment${splits.length>1?` (${splits.length} modes)`:""}`}
     </button>
@@ -180,12 +192,13 @@ export function HealthModal({patientId,current,onClose,onSaved}:{patientId:strin
     other_conditions:current?.other_conditions||"",
   });
   const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
   const toggle=(k:string)=>setData({...data,[k]:!(data as any)[k]});
 
   const save=async()=>{
-    setSaving(true);
+    setErr("");setSaving(true);
     try{await api.saveHealthHistory(patientId,data);onSaved();onClose();}
-    catch(e:any){alert(e.message);}
+    catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -199,6 +212,7 @@ export function HealthModal({patientId,current,onClose,onSaved}:{patientId:strin
     <input style={inputStyle} placeholder="Current medicines" value={data.current_medicines} onChange={e=>setData({...data,current_medicines:e.target.value})}/>
     <input style={inputStyle} placeholder="Previous surgeries" value={data.previous_surgeries} onChange={e=>setData({...data,previous_surgeries:e.target.value})}/>
     <input style={inputStyle} placeholder="Other conditions" value={data.other_conditions} onChange={e=>setData({...data,other_conditions:e.target.value})}/>
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#6366F1",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>{saving?"Saving...":"Save Health History"}</button>
   </Modal>);
 }
@@ -296,9 +310,10 @@ export function StaffModal({staff,clinicId,onClose,onSaved}:{staff?:any,clinicId
   const [pin,setPin]=useState("");
   const [saving,setSaving]=useState(false);
 
+  const [err,setErr]=useState("");
   const save=async()=>{
-    if(!name||!phone){alert("Name and phone required");return;}
-    setSaving(true);
+    if(!name||!phone){setErr("Name and phone required");return;}
+    setErr("");setSaving(true);
     try{
       if(staff?.id){
         const data:any={name,phone,role};
@@ -308,7 +323,7 @@ export function StaffModal({staff,clinicId,onClose,onSaved}:{staff?:any,clinicId
         await api.addStaff({name,phone,role,pin:pin||"1234",clinic_id:clinicId});
       }
       onSaved();onClose();
-    }catch(e:any){alert(e.message);}
+    }catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -319,6 +334,7 @@ export function StaffModal({staff,clinicId,onClose,onSaved}:{staff?:any,clinicId
       <option value="doctor">Doctor</option><option value="nurse">Nurse</option><option value="receptionist">Receptionist</option><option value="admin">Admin</option>
     </select>
     <input style={inputStyle} placeholder={staff?"New PIN (leave blank to keep)":"PIN (default: 1234)"} type="password" value={pin} onChange={e=>setPin(e.target.value.slice(0,4))}/>
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#6366F1",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>{saving?"Saving...":staff?"Update Staff":"Add Staff"}</button>
   </Modal>);
 }
@@ -358,10 +374,11 @@ export function TreatmentPlanModal({patientId,patientName,clinicId,doctorId,proc
   const total=items.reduce((s,p)=>s+(p.estimated_cost||0),0);
   const filtered=procFilter?procedures.filter((p:any)=>p.name.toLowerCase().includes(procFilter.toLowerCase())):procedures;
 
+  const [err,setErr]=useState("");
   const save=async()=>{
-    if(!name){alert("Plan name required");return;}
-    if(items.length===0){alert("Add at least one procedure");return;}
-    setSaving(true);
+    if(!name){setErr("Plan name required");return;}
+    if(items.length===0){setErr("Add at least one procedure");return;}
+    setErr("");setSaving(true);
     try{
       await api.createTreatmentPlan({
         patient_id:patientId,clinic_id:clinicId,doctor_id:doctorId,name,complaint,diagnosis,
@@ -369,7 +386,7 @@ export function TreatmentPlanModal({patientId,patientName,clinicId,doctorId,proc
         total_sittings_planned:parseInt(sittings)||1,discount:parseFloat(discount)||0,extra_charges:0,
       });
       onSaved();onClose();
-    }catch(e:any){alert(e.message);}
+    }catch(e:any){setErr(e.message);}
     finally{setSaving(false);}
   };
 
@@ -409,6 +426,7 @@ export function TreatmentPlanModal({patientId,patientName,clinicId,doctorId,proc
       </div>)}
       <div style={{marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}><b>Final</b><b style={{fontSize:18,color:"#10B981"}}>₹{(total-parseFloat(discount||"0")).toLocaleString()}</b></div>
     </div>}
+    <ErrBanner msg={err}/>
     <button disabled={saving} onClick={save} style={{width:"100%",padding:14,borderRadius:14,border:"none",background:"#10B981",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>{saving?"Creating...":"Create Treatment Plan"}</button>
   </Modal>);
 }

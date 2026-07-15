@@ -16,7 +16,7 @@ async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(g
     return [PatientOut.model_validate(p) for p in result.scalars().all()]
 
 @router.get("/phone/{phone}")
-async def by_phone(phone: str, db: AsyncSession = Depends(get_db)):
+async def by_phone(phone: str, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     p = (await db.execute(select(Patient).where(Patient.phone == phone))).scalar_one_or_none()
     if not p: return {"found": False}
     return {"found": True, "patient_id": str(p.id), "name": p.name, "phone": p.phone, "age": p.age}
@@ -28,7 +28,7 @@ async def get_patient(pid: UUID, db: AsyncSession = Depends(get_db), staff=Depen
     return PatientOut.model_validate(p)
 
 @router.post("/", response_model=PatientOut, status_code=201)
-async def create(req: PatientCreate, db: AsyncSession = Depends(get_db)):
+async def create(req: PatientCreate, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     existing = (await db.execute(select(Patient).where(Patient.phone == req.phone))).scalar_one_or_none()
     if existing: raise HTTPException(409, "Phone already exists")
     p = Patient(**req.model_dump())

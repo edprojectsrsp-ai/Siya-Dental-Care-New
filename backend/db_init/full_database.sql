@@ -7518,3 +7518,11 @@ ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_rating text;
 ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_review_count text;
 UPDATE site_theme SET google_rating = COALESCE(google_rating, '4.9'),
                       google_review_count = COALESCE(google_review_count, '120+');
+
+-- Treatment card billing confirmation gate (added post-dump; idempotent for fresh installs)
+ALTER TABLE treatment_plan_items
+  ADD COLUMN IF NOT EXISTS price_confirmed boolean NOT NULL DEFAULT false;
+
+UPDATE treatment_plan_items
+SET price_confirmed = true
+WHERE COALESCE(final_amount, 0) > 0 AND price_confirmed = false;

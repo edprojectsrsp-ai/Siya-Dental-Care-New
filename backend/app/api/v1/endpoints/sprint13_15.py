@@ -7,8 +7,8 @@ Sprint 15: RVG Image Management
 
 from datetime import datetime, timezone, date as date_type, timedelta
 from typing import Optional, List
-from uuid import UUID
-import csv, io, os, json
+from uuid import UUID, uuid4
+import csv, io, os, json, re
 
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -18,6 +18,7 @@ from sqlalchemy import text as sql_text
 
 from app.core.database import get_db
 from app.core.security import get_current_staff
+from app.core.upload_guard import safe_ext, check_size
 
 reports_router = APIRouter(prefix="/reports", tags=["Reports"])
 tooth_router = APIRouter(prefix="/teeth", tags=["Tooth Chart"])
@@ -496,17 +497,20 @@ async def upload_image(
     staff=Depends(get_current_staff),
 ):
     """Upload a patient image (RVG/OPG/CBCT/clinical photo)"""
+    # Validate type/size before touching disk
+    ext = safe_ext(file.filename)
+    content = await file.read()
+    check_size(content)
+    safe_type = re.sub(r"[^A-Za-z0-9_-]", "", image_type)[:40] or "img"
+
     # Save file to disk
     upload_dir = f"uploads/patient_media/{patient_id}"
     os.makedirs(upload_dir, exist_ok=True)
-    
-    # Generate unique filename
-    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
-    fname = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{image_type}{ext}"
+
+    # Unique filename (uuid suffix so same-second uploads never collide)
+    fname = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_type}_{uuid4().hex[:8]}{ext}"
     fpath = os.path.join(upload_dir, fname)
-    
-    # Read and save
-    content = await file.read()
+
     with open(fpath, "wb") as f:
         f.write(content)
     

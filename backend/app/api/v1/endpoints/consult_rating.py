@@ -149,25 +149,20 @@ async def verify_phone_consult_payment(body: PhoneConsultVerify,
     if not consult:
         raise HTTPException(404, "Consultation not found")
 
-    # Verify signature
+    # Verify signature — FAIL CLOSED. Razorpay's scheme is documented:
+    # signature = HMAC_SHA256(order_id + "|" + payment_id, key_secret)
+    # so we verify directly and never depend on an optional library.
     secret = consult.get("razorpay_key_secret")
-    verified = False
-    if secret:
-        try:
-            import razorpay  # type: ignore
-            rzp = razorpay.Client(auth=(consult.get("razorpay_key_id") or "", secret))
-            rzp.utility.verify_payment_signature({
-                "razorpay_order_id": body.razorpay_order_id,
-                "razorpay_payment_id": body.razorpay_payment_id,
-                "razorpay_signature": body.razorpay_signature,
-            })
-            verified = True
-        except ImportError:
-            verified = True  # test mode — accept
-        except Exception:
-            verified = False
-    else:
-        verified = True  # no secret configured — accept (offline / test mode)
+    if not secret:
+        raise HTTPException(503, "Online payments are not configured for this clinic")
+    import hashlib
+    import hmac as hmac_mod
+    expected = hmac_mod.new(
+        secret.encode(),
+        f"{body.razorpay_order_id}|{body.razorpay_payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    verified = hmac_mod.compare_digest(expected, body.razorpay_signature)
 
     if not verified:
         await db.execute(sql_text("""
