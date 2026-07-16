@@ -17,6 +17,7 @@ All admin endpoints require an authenticated staff with role='doctor' or 'admin'
 """
 import re
 import json
+import hashlib
 from uuid import UUID
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -142,6 +143,10 @@ class ThemeIn(BaseModel):
     google_reviews_url: Optional[str] = None
     google_rating: Optional[str] = None
     google_review_count: Optional[str] = None
+
+
+class PublicVisitIn(BaseModel):
+    visitor_id: UUID
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -455,8 +460,18 @@ async def public_site_2026(db: AsyncSession = Depends(get_db)):
         FROM site_doctors WHERE show_on_public_site = TRUE ORDER BY order_idx
     """))).mappings().all()
     testimonials = (await db.execute(sql_text("""
-        SELECT id, patient_name, patient_photo_url, rating, text, treatment_type, source, is_featured
-        FROM site_testimonials WHERE is_active = TRUE ORDER BY is_featured DESC, order_idx
+        SELECT id, patient_name, patient_photo_url, rating, text, treatment_type, source, is_featured,
+               google_review_url, google_author_url, google_flag_url,
+               google_publish_time, google_synced_at
+        FROM site_testimonials
+        WHERE is_active = TRUE
+          AND rating >= 4
+          AND (
+              COALESCE(source, 'manual') <> 'google'
+              OR google_synced_at IS NULL
+              OR google_synced_at >= now() - INTERVAL '90 days'
+          )
+        ORDER BY is_featured DESC, order_idx
     """))).mappings().all()
     videos = (await db.execute(sql_text("""
         SELECT id, clinic_id, category, title, caption, video_url, thumbnail_url,
@@ -472,6 +487,12 @@ async def public_site_2026(db: AsyncSession = Depends(get_db)):
         SELECT category, title, caption, image_url FROM gallery_images
         WHERE is_active=TRUE ORDER BY category, order_idx
     """))).mappings().all()
+    visitor_stats = (await db.execute(sql_text("""
+        SELECT
+            COUNT(DISTINCT visitor_hash) AS total,
+            COUNT(DISTINCT visitor_hash) FILTER (WHERE visit_date = CURRENT_DATE) AS today
+        FROM public_site_visitor_days
+    """))).mappings().one()
     return {
         "theme": dict(theme) if theme else {},
         "clinics": [dict(c) | {"id": str(c["id"])} for c in clinics],
@@ -485,4 +506,34 @@ async def public_site_2026(db: AsyncSession = Depends(get_db)):
                    for v in videos],
         "sections": [dict(s) for s in sections],
         "gallery": [dict(g) for g in gallery],
+        "visitors": {
+            "total": int(visitor_stats["total"] or 0),
+            "today": int(visitor_stats["today"] or 0),
+        },
+    }
+
+
+@public_router.post("/visit")
+async def record_public_visit(body: PublicVisitIn, db: AsyncSession = Depends(get_db)):
+    """Count one browser once per day without retaining its raw identifier or IP."""
+    from app.core.config import get_settings
+
+    secret = get_settings().SECRET_KEY
+    visitor_hash = hashlib.sha256(f"{secret}:{body.visitor_id}".encode("utf-8")).hexdigest()
+    await db.execute(sql_text("""
+        INSERT INTO public_site_visitor_days (visitor_hash, visit_date)
+        VALUES (:visitor_hash, CURRENT_DATE)
+        ON CONFLICT (visitor_hash, visit_date) DO UPDATE SET
+            last_seen_at = now(),
+            page_views = public_site_visitor_days.page_views + 1
+    """), {"visitor_hash": visitor_hash})
+    stats = (await db.execute(sql_text("""
+        SELECT
+            COUNT(DISTINCT visitor_hash) AS total,
+            COUNT(DISTINCT visitor_hash) FILTER (WHERE visit_date = CURRENT_DATE) AS today
+        FROM public_site_visitor_days
+    """))).mappings().one()
+    return {
+        "total": int(stats["total"] or 0),
+        "today": int(stats["today"] or 0),
     }

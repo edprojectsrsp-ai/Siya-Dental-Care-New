@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import os
+import re
+import time
 import uuid
+from collections import defaultdict, deque
 from pathlib import Path
 from datetime import date as date_type
 from uuid import UUID
@@ -19,6 +22,22 @@ from app.models.models import Clinic
 router = APIRouter(prefix="/uploads", tags=["Uploads"])
 public_router = APIRouter(prefix="/public", tags=["Public"])
 public_site_router = APIRouter(prefix="/public-site", tags=["Public Site"])
+
+# ── Simple in-process rate limit for the public booking form (no auth, so it's an open target) ──
+_BOOKING_RATE_LIMIT = 5           # max submissions
+_BOOKING_RATE_WINDOW = 300        # per 5 minutes
+_booking_hits: dict[str, deque] = defaultdict(deque)
+
+
+def _booking_rate_limited(key: str) -> bool:
+    now = time.time()
+    hits = _booking_hits[key]
+    while hits and now - hits[0] > _BOOKING_RATE_WINDOW:
+        hits.popleft()
+    if len(hits) >= _BOOKING_RATE_LIMIT:
+        return True
+    hits.append(now)
+    return False
 
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "uploads/patient_media"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -316,10 +335,23 @@ async def _store_public_appointment_request(request: Request, db: AsyncSession):
             return value or None
         return value
 
+    # Honeypot — a hidden field real users never fill in; bots that auto-fill every field trip it.
+    if _clean(payload.get("website")) or _clean(payload.get("hp_field")):
+        return {"request_id": None, "message": "Appointment request received. Our team will confirm it shortly."}
+
     patient_name = str(payload.get("patient_name") or payload.get("name") or "").strip()
-    phone = str(payload.get("phone") or "").strip()
-    if not patient_name or not phone:
+    phone_raw = str(payload.get("phone") or "").strip()
+    if not patient_name or not phone_raw:
         raise HTTPException(status_code=400, detail="patient_name and phone are required")
+
+    phone_digits = re.sub(r"\D", "", phone_raw)
+    if len(phone_digits) < 10 or len(phone_digits) > 13:
+        raise HTTPException(status_code=400, detail="Enter a valid phone number")
+    phone = phone_raw
+
+    client_ip = request.client.host if request.client else "unknown"
+    if _booking_rate_limited(f"ip:{client_ip}") or _booking_rate_limited(f"phone:{phone_digits}"):
+        raise HTTPException(status_code=429, detail="Too many requests — please try again in a few minutes or call the clinic directly.")
 
     preferred_date_raw = _clean(payload.get("preferred_date") or payload.get("date"))
     preferred_date = None
@@ -345,7 +377,6 @@ async def _store_public_appointment_request(request: Request, db: AsyncSession):
     elif service and not message:
         message = f"Service: {service}"
 
-    insert_columns = ["patient_name", "phone"]
     values = {
         "patient_name": patient_name,
         "phone": phone,
@@ -358,6 +389,78 @@ async def _store_public_appointment_request(request: Request, db: AsyncSession):
         "source": source,
         "status": "pending",
     }
+
+    # De-dupe by phone (last 10 digits) so "+91 98765 43210" matches "9876543210".
+    # Clinical websites almost never force patient accounts for first booking — instead
+    # they coalesce open requests so the staff queue doesn't fill with spam duplicates.
+    cid_param = clinic_id or None
+    last10 = phone_digits[-10:]
+
+    existing = (await db.execute(
+        text(
+            "SELECT id FROM appointment_requests "
+            "WHERE status = 'pending' AND right(regexp_replace(phone, '\\D', '', 'g'), 10) = :last10 "
+            "AND (CAST(:cid AS uuid) IS NULL OR clinic_id IS NULL OR clinic_id = CAST(:cid AS uuid)) "
+            "ORDER BY created_at DESC LIMIT 1"
+        ),
+        {"last10": last10, "cid": cid_param},
+    )).mappings().first()
+
+    if existing:
+        update_columns = ["patient_name", "phone"]
+        for extra_column in ("preferred_date", "preferred_time", "branch", "message", "service", "clinic_id", "source"):
+            if extra_column in columns and values.get(extra_column) is not None:
+                update_columns.append(extra_column)
+        set_sql = ", ".join(f"{c} = :{c}" for c in update_columns)
+        params = {key: values[key] for key in update_columns}
+        params["id"] = existing["id"]
+        await db.execute(text(f"UPDATE appointment_requests SET {set_sql} WHERE id = :id"), params)
+        return {
+            "request_id": existing["id"],
+            "updated": True,
+            "duplicate": True,
+            "message": (
+                "We already have an open request for this mobile number — "
+                "updated it with your latest details. The clinic will call to confirm. "
+                "No need to submit again."
+            ),
+        }
+
+    # Soft notice if this phone already has a visit on the preferred day.
+    # Do not hard-block — staff may still accept a second concern or family member.
+    already_booked_note = ""
+    if preferred_date is not None:
+        try:
+            same_day = (await db.execute(
+                text(
+                    """
+                    SELECT a.id
+                    FROM appointments a
+                    LEFT JOIN patients p ON p.id = a.patient_id
+                    WHERE right(
+                            regexp_replace(
+                              COALESCE(a.phone_number, p.phone, ''),
+                              '\\D', '', 'g'
+                            ),
+                            10
+                          ) = :last10
+                      AND COALESCE(a.scheduled_date, a.confirmed_date, a.requested_date) = :day
+                      AND COALESCE(a.status, '') NOT IN ('cancelled', 'no_show', 'rejected', 'completed')
+                    LIMIT 1
+                    """
+                ),
+                {"last10": last10, "day": preferred_date},
+            )).mappings().first()
+            if same_day:
+                already_booked_note = (
+                    " Note: this number already has a visit on that date — "
+                    "the desk will check before confirming another slot."
+                )
+        except Exception:
+            # Schema can vary slightly across environments — never fail public booking for this check
+            already_booked_note = ""
+
+    insert_columns = ["patient_name", "phone"]
     for extra_column in (
         "preferred_date",
         "preferred_time",
@@ -381,7 +484,12 @@ async def _store_public_appointment_request(request: Request, db: AsyncSession):
     row = result.mappings().one()
     return {
         "request_id": row["id"],
-        "message": "Appointment request received. Our team will confirm it shortly.",
+        "updated": False,
+        "duplicate": False,
+        "message": (
+            "Appointment request received. Our team will call to confirm shortly."
+            + already_booked_note
+        ),
     }
 
 

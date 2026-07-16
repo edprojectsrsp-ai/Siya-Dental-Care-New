@@ -123,7 +123,27 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────
-export async function login(phone: string, pin: string, clinic_id: string) {
+/** Log in with a resolved staff record's opaque id (used by the desktop login dropdown,
+ *  which no longer receives phone numbers from the public staff list). */
+export async function login(staff_id: string, pin: string, clinic_id: string) {
+  const data = await apiFetch("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ staff_id, pin, clinic_id }),
+  });
+  setToken(data.access_token);
+  setStaffInfo({
+    staff_id: data.staff_id,
+    name: data.name,
+    role: data.role,
+    clinic_id: data.clinic_id,
+    clinic_name: data.clinic_name,
+  });
+  return data;
+}
+
+/** Log in by typed-in phone number (used by the /m phone-first shell, which has no
+ *  staff picker). Backend still accepts phone as a fallback identity for this reason. */
+export async function loginByPhone(phone: string, pin: string, clinic_id: string) {
   const data = await apiFetch("/auth/login", {
     method: "POST",
     body: JSON.stringify({ phone, pin, clinic_id }),
@@ -141,6 +161,13 @@ export async function login(phone: string, pin: string, clinic_id: string) {
 
 export function logout() {
   clearToken();
+}
+
+export async function authSetPassword(password: string) {
+  return apiFetch("/auth/set-password", { method: "POST", body: JSON.stringify({ password }) });
+}
+export async function authClearPassword() {
+  return apiFetch("/auth/set-password", { method: "DELETE" });
 }
 
 export async function getStaffForLogin(): Promise<any[]> {
@@ -532,6 +559,10 @@ export async function adminUpdateStaff(staffId: string, data: any) {
 }
 export async function adminResetPin(staffId: string, newPin: string) {
   return apiFetch(`${ADMIN}/staff/${staffId}/reset-pin`, { method: "POST", body: JSON.stringify({ new_pin: newPin }) });
+}
+/** Admin resets a staff member's LOGIN password. Pass null to auto-generate a temp one. */
+export async function adminResetPassword(staffId: string, newPassword: string | null) {
+  return apiFetch(`${ADMIN}/staff/${staffId}/reset-password`, { method: "POST", body: JSON.stringify({ new_password: newPassword }) });
 }
 export async function adminDeactivateStaff(staffId: string) {
   return apiFetch(`${ADMIN}/staff/${staffId}`, { method: "DELETE" });

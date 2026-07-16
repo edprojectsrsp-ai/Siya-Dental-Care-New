@@ -6,7 +6,13 @@ from pydantic import BaseModel, Field
 
 # ─── AUTH ─────────────────────────────────────────────
 class LoginRequest(BaseModel):
-    phone: str; pin: str; clinic_id: UUID
+    # staff_id lets the login screen avoid sending phone numbers over the wire
+    # (the public staff dropdown no longer exposes them). phone is still accepted
+    # for other callers (e.g. WhatsApp-bot login flows) that only have the number.
+    phone: Optional[str] = None
+    staff_id: Optional[UUID] = None
+    pin: str
+    clinic_id: UUID
 class TokenResponse(BaseModel):
     access_token: str; token_type: str = "bearer"; staff_id: UUID; name: str; role: str; clinic_id: UUID; clinic_name: str
 

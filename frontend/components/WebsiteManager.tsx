@@ -65,7 +65,7 @@ export function WebsiteManager({ accent, show, clinics }: { accent: string; show
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: INK }}>🌐 Website Manager</h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: MUTE }}>
-            Edit every part of your public website, upload images, then see it live in the preview — changes go to <a href="/public" target="_blank" rel="noreferrer" style={{ color: A, fontWeight: 700 }}>/public</a> on save.
+            Edit every part of your public website, upload images, then see it live in the preview — changes go to <a href="/" target="_blank" rel="noreferrer" style={{ color: A, fontWeight: 700 }}>/ </a> on save.
           </p>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
@@ -74,7 +74,7 @@ export function WebsiteManager({ accent, show, clinics }: { accent: string; show
             <button onClick={refreshPreview} style={toolBtn(false)} title="Reload preview after saving">↻ Refresh</button>
             <button onClick={() => setDevice(device === "desktop" ? "mobile" : "desktop")} style={toolBtn(false)}>{device === "desktop" ? "💻 Desktop" : "📱 Mobile"}</button>
           </>}
-          <a href="/public" target="_blank" rel="noreferrer" style={{ ...toolBtn(false), textDecoration: "none" }}>↗ Open</a>
+          <a href="/" target="_blank" rel="noreferrer" style={{ ...toolBtn(false), textDecoration: "none" }}>↗ Open</a>
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" as const, background: SOFT, borderRadius: 12, padding: 5 }}>

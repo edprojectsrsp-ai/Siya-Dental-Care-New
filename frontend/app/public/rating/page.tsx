@@ -1,43 +1,41 @@
 "use client";
 /**
- * app/public/rating/page.tsx — Bundle Q+
- *
  * Public rating submission page.
- * URL format: /public/rating?token=<token>
- *
- * Reads token from URL, looks up the rating row, lets the patient pick 1–5
- * stars and add an optional comment. On submit, the backend auto-creates a
- * ₹100 credit (if settings say so) and the patient sees a thank-you screen.
+ * URL: /public/rating?token=<token>
  */
 
 import { useEffect, useState } from "react";
 import * as api from "@/lib/api";
+import PublicChrome, {
+  PublicAlert,
+  PublicCard,
+  PublicField,
+  PublicStatus,
+} from "@/components/PublicChrome";
 
-const A = "#0E7C7B";
-const INK = "#0F172A";
-const MUTE = "#64748B";
-const LINE = "#E2E8F0";
-const BG  = "#F8FAFC";
-const GOLD = "#F59E0B";
+const STAR_LABELS = ["Tap a star to rate", "Could be better", "OK", "Good", "Great", "Excellent!"];
 
 export default function PublicRatingPage() {
-  const [token, setToken] = useState<string>("");
+  const [token, setToken] = useState("");
   const [info, setInfo] = useState<any>(null);
   const [stage, setStage] = useState<"loading" | "form" | "done" | "already" | "error">("loading");
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
 
-  const [rating, setRating] = useState<number>(0);
-  const [hover, setHover] = useState<number>(0);
-  const [comment, setComment] = useState<string>("");
+  const [rating, setRating] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<any>(null);
 
-  // Read token + lookup
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const t = sp.get("token") || "";
     setToken(t);
-    if (!t) { setStage("error"); setError("No rating token provided."); return; }
+    if (!t) {
+      setStage("error");
+      setError("No rating token provided. Open the link sent by the clinic.");
+      return;
+    }
     (async () => {
       try {
         const d = await api.publicRatingGet(t);
@@ -57,190 +55,170 @@ export default function PublicRatingPage() {
   }, []);
 
   const submit = async () => {
-    if (rating < 1) { setError("Please pick at least 1 star"); return; }
-    setError(""); setSubmitting(true);
+    if (rating < 1) {
+      setError("Please pick at least 1 star");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
     try {
       const r = await api.publicRatingSubmit(token, rating, comment || undefined);
       setResult(r);
       setStage("done");
     } catch (e: any) {
       setError(e.message || "Could not save your rating.");
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  const active = hover || rating;
+
   if (stage === "loading") {
-    return <Shell><Card><div style={loadingStyle}>⏳ Loading…</div></Card></Shell>;
+    return (
+      <PublicChrome kicker="Feedback" title="Loading your visit…" maxWidth="sm">
+        <PublicCard>
+          <div className="ps-loading" style={{ minHeight: "12rem" }}>
+            <div className="ps-loading-mark" aria-hidden="true">S</div>
+            <p>Just a moment…</p>
+          </div>
+        </PublicCard>
+      </PublicChrome>
+    );
   }
 
   if (stage === "error") {
     return (
-      <Shell>
-        <Card>
-          <div style={{ padding: 30, textAlign: "center" as const }}>
-            <div style={{ fontSize: 48 }}>⚠</div>
-            <h2 style={{ marginTop: 6 }}>Link not valid</h2>
-            <p style={{ color: MUTE, fontSize: 14 }}>{error}</p>
-          </div>
-        </Card>
-      </Shell>
+      <PublicChrome kicker="Feedback" title="Link not valid" maxWidth="sm">
+        <PublicCard>
+          <PublicStatus icon="!" title="We couldn’t open this link">
+            <p>{error}</p>
+            <div className="ps-smile-actions" style={{ marginTop: "1.25rem" }}>
+              <a href="/" className="ps-btn-primary">Go to website</a>
+            </div>
+          </PublicStatus>
+        </PublicCard>
+      </PublicChrome>
     );
   }
 
   if (stage === "already") {
     return (
-      <Shell>
-        <Card>
-          <div style={{ padding: 30, textAlign: "center" as const }}>
-            <div style={{ fontSize: 48 }}>✓</div>
-            <h2 style={{ marginTop: 6, color: A }}>Thanks for rating!</h2>
-            <p style={{ color: MUTE, fontSize: 14 }}>You already gave us <b>{rating} {rating === 1 ? "star" : "stars"}</b>.</p>
-            <div style={{ marginTop: 14 }}>
-              {[1,2,3,4,5].map(n => (
-                <span key={n} style={{ fontSize: 30, color: n <= rating ? GOLD : LINE }}>★</span>
+      <PublicChrome kicker="Feedback" title="Thanks again" maxWidth="sm">
+        <PublicCard>
+          <PublicStatus icon="✓" title="You already rated this visit">
+            <p>
+              You gave us <strong>{rating}</strong> {rating === 1 ? "star" : "stars"}.
+            </p>
+            <div className="ps-sub-stars" aria-hidden="true">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <span key={n} className={`ps-sub-star${n <= rating ? " on" : ""}`}>
+                  ★
+                </span>
               ))}
             </div>
             {comment && (
-              <div style={{ marginTop: 14, padding: 12, background: BG, borderRadius: 10, fontSize: 13, color: INK, fontStyle: "italic" as const }}>
-                "{comment}"
-              </div>
+              <blockquote className="ps-sub-tips" style={{ fontStyle: "italic" }}>
+                “{comment}”
+              </blockquote>
             )}
-          </div>
-        </Card>
-      </Shell>
+          </PublicStatus>
+        </PublicCard>
+      </PublicChrome>
     );
   }
 
   if (stage === "done") {
     return (
-      <Shell>
-        <Card>
-          <div style={{ padding: 30, textAlign: "center" as const }}>
-            <div style={{ fontSize: 60 }}>🎉</div>
-            <h1 style={{ margin: "8px 0 4px", color: A, fontSize: 26 }}>Thank you!</h1>
-            <p style={{ fontSize: 15, color: INK, lineHeight: 1.6 }}>
-              Your <b>{result?.rating}-star</b> rating has been recorded.
+      <PublicChrome kicker="Feedback" title="Thank you" maxWidth="sm">
+        <PublicCard>
+          <PublicStatus icon="🎉" title="Rating received">
+            <p>
+              Your <strong>{result?.rating}-star</strong> rating has been recorded.
             </p>
             {result?.credit_amount > 0 && (
-              <div style={{
-                marginTop: 14, padding: 16,
-                background: `linear-gradient(135deg, ${A}22, ${GOLD}22)`,
-                borderRadius: 14, border: `1px solid ${A}55`,
-              }}>
-                <div style={{ fontSize: 14, color: MUTE, fontWeight: 700, letterSpacing: 0.5 }}>YOUR REWARD</div>
-                <div style={{ fontSize: 38, fontWeight: 900, color: A, marginTop: 4 }}>₹{result.credit_amount}</div>
-                <div style={{ fontSize: 13, color: INK, marginTop: 6 }}>
-                  Credit added! Use it on your next visit. Valid for 90 days.
-                </div>
+              <div className="ps-sub-reward">
+                <div className="ps-sub-reward-label">Your reward</div>
+                <div className="ps-sub-reward-amount">₹{result.credit_amount}</div>
+                <p style={{ margin: "0.5rem 0 0", fontSize: "0.875rem", color: "var(--ps-ink)" }}>
+                  Credit added for your next visit · valid 90 days
+                </p>
               </div>
             )}
-            <div style={{ fontSize: 12, color: MUTE, marginTop: 18 }}>
-              Made our day. We can't wait to see you again! 💚
+            <p style={{ marginTop: "1rem" }}>Made our day. We can&apos;t wait to see you again.</p>
+            <div className="ps-smile-actions" style={{ marginTop: "1.25rem" }}>
+              <a href="/" className="ps-btn-primary">Back to website</a>
             </div>
-          </div>
-        </Card>
-      </Shell>
+          </PublicStatus>
+        </PublicCard>
+      </PublicChrome>
     );
   }
 
-  // ─── form ───
   return (
-    <Shell>
-      <Card>
-        <div style={{ padding: 26 }}>
-          <h1 style={{ margin: "0 0 4px", fontSize: 22, color: INK }}>
-            How was your visit?
-          </h1>
-          <p style={{ marginTop: 0, fontSize: 14, color: MUTE, lineHeight: 1.5 }}>
-            {info?.patient_name && <>Hi <b>{info.patient_name}</b>! </>}
-            Help us by rating <b>{info?.clinic_name || "your visit"}</b>.
-          </p>
-
-          {/* Star picker */}
-          <div style={{
-            display: "flex", justifyContent: "center" as const, gap: 8,
-            margin: "26px 0", fontSize: 50, cursor: "pointer",
-          }}>
-            {[1,2,3,4,5].map(n => (
-              <span key={n}
+    <PublicChrome
+      kicker="Feedback"
+      title="How was your visit?"
+      subtitle={
+        info?.patient_name
+          ? `Hi ${info.patient_name} — rate ${info?.clinic_name || "your visit"} in a few taps.`
+          : `Rate ${info?.clinic_name || "your visit"} in a few taps.`
+      }
+      maxWidth="sm"
+    >
+      <PublicCard>
+        <div className="ps-sub-form">
+          <div
+            className="ps-sub-stars"
+            role="radiogroup"
+            aria-label="Star rating"
+          >
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`ps-sub-star${n <= active ? " on" : ""}`}
+                aria-label={`${n} star${n > 1 ? "s" : ""}`}
+                aria-checked={rating === n}
+                role="radio"
                 onClick={() => setRating(n)}
                 onMouseEnter={() => setHover(n)}
                 onMouseLeave={() => setHover(0)}
-                style={{
-                  color: n <= (hover || rating) ? GOLD : LINE,
-                  transition: "transform 0.15s",
-                  transform: n <= (hover || rating) ? "scale(1.1)" : "scale(1)",
-                }}
-              >★</span>
+                onFocus={() => setHover(n)}
+                onBlur={() => setHover(0)}
+              >
+                ★
+              </button>
             ))}
           </div>
+          <div className="ps-sub-star-label">{STAR_LABELS[active] || STAR_LABELS[0]}</div>
 
-          <div style={{ textAlign: "center" as const, fontSize: 13, color: MUTE, marginBottom: 20, height: 16 }}>
-            {(hover || rating) > 0 && (
-              ["Tap a star to rate", "Could be better", "OK", "Good", "Great", "Excellent!"][hover || rating]
-            )}
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 5 }}>Anything to add? (optional)</div>
-            <textarea value={comment} onChange={e => setComment(e.target.value)}
+          <PublicField label="Anything to add? (optional)">
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
               placeholder="What did you like? What could we do better?"
               maxLength={500}
-              style={{
-                width: "100%", minHeight: 80, padding: "11px 13px", borderRadius: 10,
-                border: `1.5px solid ${LINE}`, fontSize: 14, fontFamily: "inherit",
-                resize: "vertical" as const, outline: "none", boxSizing: "border-box" as const,
-              }} />
-          </div>
+              rows={4}
+            />
+          </PublicField>
 
-          {error && (
-            <div style={{
-              padding: 10, marginBottom: 10, background: "#FEE2E2",
-              border: "1px solid #FCA5A5", borderRadius: 10, fontSize: 13, color: "#991B1B",
-            }}>{error}</div>
-          )}
+          {error && <PublicAlert tone="error">{error}</PublicAlert>}
 
-          <button onClick={submit} disabled={submitting || rating < 1}
-            style={{
-              width: "100%", background: rating >= 1 ? A : LINE, color: "#fff",
-              border: "none", padding: 14, borderRadius: 12, fontSize: 16, fontWeight: 800,
-              cursor: rating >= 1 ? "pointer" : "not-allowed", fontFamily: "inherit",
-              opacity: submitting ? 0.6 : 1,
-            }}>
-            {submitting ? "Submitting…" : "Submit & get ₹100 reward 🎁"}
+          <button
+            type="button"
+            className="ps-sub-submit clay"
+            onClick={submit}
+            disabled={submitting || rating < 1}
+          >
+            {submitting ? "Submitting…" : "Submit rating"}
           </button>
 
-          <div style={{ marginTop: 12, fontSize: 11, color: MUTE, textAlign: "center" as const }}>
-            🎁 Rate us to receive ₹100 credit toward your next visit
-          </div>
+          <p className="ps-sub-meta">
+            🎁 Some visits include a small clinic credit after you rate — details appear if available.
+          </p>
         </div>
-      </Card>
-    </Shell>
+      </PublicCard>
+    </PublicChrome>
   );
 }
-
-function Shell({ children }: any) {
-  return (
-    <div style={{
-      minHeight: "100vh", background: `linear-gradient(135deg, ${A}11 0%, ${BG} 100%)`,
-      padding: "30px 16px", fontFamily: "system-ui, -apple-system, sans-serif",
-    }}>
-      <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        <div style={{ textAlign: "center" as const, marginBottom: 18 }}>
-          <div style={{ fontSize: 24, fontWeight: 900, color: A }}>Siya Dental Care</div>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-function Card({ children }: any) {
-  return (
-    <div style={{
-      background: "#fff", borderRadius: 18,
-      boxShadow: "0 4px 24px #0f172a14", overflow: "hidden" as const,
-    }}>{children}</div>
-  );
-}
-const loadingStyle: any = {
-  padding: 40, textAlign: "center" as const, color: MUTE, fontSize: 14,
-};

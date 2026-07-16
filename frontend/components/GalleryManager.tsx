@@ -58,7 +58,7 @@ export function GalleryManager({ accent, show }: { accent: string; show: (m: str
     <div className="animate-in">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap" as const, gap: 10 }}>
         <h1 style={{ margin: 0, fontSize: 32, fontWeight: 900, color: INK }}>🖼 Website Gallery</h1>
-        <a href="/public" target="_blank" style={{ background: `linear-gradient(135deg,${A},${A}DD)`, color: "#fff", padding: "12px 22px", borderRadius: 12, fontWeight: 800, fontSize: 14, textDecoration: "none", boxShadow: `0 5px 16px ${A}44` }}>↗ View Public Website</a>
+        <a href="/" target="_blank" style={{ background: `linear-gradient(135deg,${A},${A}DD)`, color: "#fff", padding: "12px 22px", borderRadius: 12, fontWeight: 800, fontSize: 14, textDecoration: "none", boxShadow: `0 5px 16px ${A}44` }}>↗ View Public Website</a>
       </div>
 
       {/* Upload card */}

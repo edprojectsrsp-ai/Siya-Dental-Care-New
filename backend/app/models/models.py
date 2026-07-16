@@ -36,6 +36,7 @@ class Staff(Base):
     phone = Column(String(15), nullable=False)
     telegram_chat_id = Column(String(50))
     pin_hash = Column(String(255))
+    password_hash = Column(String(255))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

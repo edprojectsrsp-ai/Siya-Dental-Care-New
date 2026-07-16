@@ -31,6 +31,7 @@ class StaffCreate(BaseModel):
     name: str; phone: str; role: str
     email: Optional[str] = None
     pin: str = "0000"
+    password: Optional[str] = None   # login credential; auto-generated if omitted
     clinic_id: Optional[UUID] = None
     telegram_chat_id: Optional[str] = None
 class StaffUpdate(BaseModel):
@@ -41,6 +42,13 @@ class StaffUpdate(BaseModel):
     telegram_chat_id: Optional[str] = None
 class PinReset(BaseModel):
     new_pin: str
+class PasswordReset(BaseModel):
+    new_password: Optional[str] = None   # if omitted, a temp password is generated
+
+
+_PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+def _generate_temp_password() -> str:
+    return "".join(secrets.choice(_PW_ALPHABET) for _ in range(10))
 
 @router.get("/staff")
 async def list_staff(include_inactive: bool = False, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
@@ -64,12 +72,18 @@ async def create_staff(body: StaffCreate, db: AsyncSession = Depends(get_db), st
         raise HTTPException(400, "Invalid role")
     existing = (await db.execute(sql_text("SELECT id FROM staff WHERE phone=:p AND is_active=TRUE"), {"p": body.phone})).mappings().one_or_none()
     if existing: raise HTTPException(409, "Phone already in use")
-    row = (await db.execute(sql_text("""INSERT INTO staff (name, phone, email, role, pin_hash, clinic_id, telegram_chat_id, created_by, is_active)
-        VALUES(:n, :p, :e, :r, :pin, :c, :tg, :by, TRUE) RETURNING id"""),
+    # Login uses the PASSWORD. Use the supplied one or generate a temp password to hand over.
+    temp_pw = None
+    if body.password:
+        pw = body.password
+    else:
+        pw = _generate_temp_password(); temp_pw = pw
+    row = (await db.execute(sql_text("""INSERT INTO staff (name, phone, email, role, pin_hash, password_hash, clinic_id, telegram_chat_id, created_by, is_active)
+        VALUES(:n, :p, :e, :r, :pin, :pw, :c, :tg, :by, TRUE) RETURNING id"""),
         {"n": body.name.strip(), "p": body.phone.strip(), "e": body.email, "r": body.role,
-         "pin": _hash_pin(body.pin), "c": str(body.clinic_id) if body.clinic_id else None,
+         "pin": _hash_pin(body.pin), "pw": _hash_pin(pw), "c": str(body.clinic_id) if body.clinic_id else None,
          "tg": body.telegram_chat_id, "by": str(staff["staff_id"])})).mappings().one()
-    return {"id": str(row["id"]), "default_pin": body.pin}
+    return {"id": str(row["id"]), "default_pin": body.pin, "temp_password": temp_pw}
 
 @router.patch("/staff/{staff_id}")
 async def update_staff(staff_id: UUID, body: StaffUpdate, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
@@ -90,6 +104,26 @@ async def reset_pin(staff_id: UUID, body: PinReset, db: AsyncSession = Depends(g
     await db.execute(sql_text("UPDATE staff SET pin_hash=:p WHERE id=:i"), {"p": _hash_pin(body.new_pin), "i": str(staff_id)})
     await db.commit()
     return {"reset": True}
+
+@router.post("/staff/{staff_id}/reset-password")
+async def reset_password(staff_id: UUID, body: PasswordReset, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
+    """Admin resets a staff member's login password (the 'forgot password → contact admin'
+    flow). If no password is supplied, a temp one is generated and returned once so the
+    admin can hand it over; the staff member changes it later in My Account."""
+    _require_admin(staff)
+    target = (await db.execute(sql_text("SELECT id FROM staff WHERE id=:i"), {"i": str(staff_id)})).mappings().one_or_none()
+    if not target:
+        raise HTTPException(404, "Staff not found")
+    temp_pw = None
+    if body.new_password:
+        if len(body.new_password) < 8:
+            raise HTTPException(400, "Password must be at least 8 characters")
+        pw = body.new_password
+    else:
+        pw = _generate_temp_password(); temp_pw = pw
+    await db.execute(sql_text("UPDATE staff SET password_hash=:p WHERE id=:i"), {"p": _hash_pin(pw), "i": str(staff_id)})
+    await db.commit()
+    return {"reset": True, "temp_password": temp_pw}
 
 @router.delete("/staff/{staff_id}")
 async def deactivate_staff(staff_id: UUID, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
