@@ -39,9 +39,12 @@ export default async function PublicHomePage() {
         // address, phone, hours, and rating directly in search results and the local
         // map pack, instead of relying purely on crawled page text.
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(
-            clinics.map((c) => ({
-              "@context": "https://schema.org",
+          // Single top-level object with @context + @graph — the canonical way to
+          // express multiple entities. (A bare top-level array works for Google but
+          // trips some page-scanning tools/extensions that assume one object.)
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@graph": clinics.map((c) => ({
               "@type": "Dentist",
               name: c.name || "Siya Dental Care",
               image: c.hero_image_url || undefined,
@@ -54,8 +57,8 @@ export default async function PublicHomePage() {
               aggregateRating: theme.google_rating
                 ? { "@type": "AggregateRating", ratingValue: theme.google_rating, reviewCount: String(theme.google_review_count || "1").replace(/\D/g, "") || "1" }
                 : undefined,
-            }))
-          ),
+            })),
+          }),
         }}
       />
       <PublicMarketingSite clinicId={clinicId} content={content} />
