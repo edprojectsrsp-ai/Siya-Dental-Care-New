@@ -37,6 +37,7 @@ class Staff(Base):
     telegram_chat_id = Column(String(50))
     pin_hash = Column(String(255))
     password_hash = Column(String(255))
+    multi_clinic = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

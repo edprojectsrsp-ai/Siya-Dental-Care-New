@@ -128,7 +128,7 @@ export default function Home(){
 
   if(checking) return <Spinner label="Loading Siya Dental Care…" />;
   if(!authed) return <LoginScreen onLogin={(d:any)=>{
-    setStaff({staff_id:d.staff_id,name:d.name,role:d.role,clinic_id:d.clinic_id,clinic_name:d.clinic_name});setAuthed(true);
+    setStaff({staff_id:d.staff_id,name:d.name,role:d.role,clinic_id:d.clinic_id,clinic_name:d.clinic_name,multi_clinic:d.multi_clinic});setAuthed(true);
   }}/>;
   return <MainApp staff={staff} onLogout={()=>{api.logout();setAuthed(false);setStaff(null);}}/>;
 }
@@ -361,8 +361,8 @@ function MainApp({staff:initialStaff,onLogout}:{staff:any,onLogout:()=>void}){
               <div style={{fontSize:10,opacity:.5}}>{staff?.name} ({staff?.role})</div>
             </div>
           </div>
-          {/* Clinic switcher pills — only if >1 clinic */}
-          {allClinics.length>1&&(
+          {/* Clinic switcher pills — only for multi-clinic staff (doctor/specialist/admin) */}
+          {staff?.multi_clinic&&allClinics.length>1&&(
             <div style={{display:"flex",gap:6}}>
               {allClinics.map((c,i)=>{
                 const t=CLINIC_THEMES[i%CLINIC_THEMES.length];
@@ -529,7 +529,7 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
           <>
             <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>🦷 Siya Dental</div>
             <div style={{fontSize:13,color:"#ffffff66",marginBottom:4}}>{sanitize(staff?.clinic_name)}</div>
-            {allClinics.length>1&&(
+            {staff?.multi_clinic&&allClinics.length>1&&(
               <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
                 {allClinics.map((c:any,i:number)=>{
                   const t=CLINIC_THEMES[i%CLINIC_THEMES.length];

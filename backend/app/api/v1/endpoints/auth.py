@@ -53,10 +53,18 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     if not req.staff_id and not req.phone:
         raise HTTPException(400, "staff_id or phone is required")
 
+    # Look the account up first WITHOUT the clinic filter. Multi-clinic staff
+    # (doctor/specialist/admin flagged multi_clinic) may sign in from any branch;
+    # single-clinic staff must still match the clinic they belong to.
     if req.staff_id:
-        staff = (await db.execute(select(Staff).where(Staff.id == req.staff_id, Staff.clinic_id == req.clinic_id, Staff.is_active == True))).scalar_one_or_none()
+        staff = (await db.execute(select(Staff).where(Staff.id == req.staff_id, Staff.is_active == True))).scalar_one_or_none()
     else:
-        staff = (await db.execute(select(Staff).where(Staff.phone == req.phone, Staff.clinic_id == req.clinic_id, Staff.is_active == True))).scalar_one_or_none()
+        staff = (await db.execute(select(Staff).where(Staff.phone == req.phone, Staff.is_active == True))).scalar_one_or_none()
+
+    # Enforce clinic membership for accounts that are NOT multi-clinic.
+    if staff and not getattr(staff, "multi_clinic", False):
+        if req.clinic_id and str(staff.clinic_id) != str(req.clinic_id):
+            staff = None
 
     # Login requires the account PASSWORD — the 4-digit PIN is no longer accepted for
     # login (it's easily shoulder-surfed / shared and exposed the clinic). The `pin`
@@ -77,9 +85,13 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
         raise HTTPException(401, "Invalid credentials")
 
     _clear_failures(key)
-    clinic = (await db.execute(select(Clinic).where(Clinic.id == req.clinic_id))).scalar_one_or_none()
-    token = create_access_token({"sub": str(staff.id), "clinic_id": str(staff.clinic_id), "role": staff.role, "name": staff.name})
-    return TokenResponse(access_token=token, staff_id=staff.id, name=staff.name, role=staff.role, clinic_id=staff.clinic_id, clinic_name=clinic.name if clinic else "")
+    is_multi = bool(getattr(staff, "multi_clinic", False))
+    # Multi-clinic staff land on whichever branch they signed in at (then can switch
+    # in-app); single-clinic staff always land on their own clinic.
+    active_clinic_id = req.clinic_id if (is_multi and req.clinic_id) else staff.clinic_id
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == active_clinic_id))).scalar_one_or_none()
+    token = create_access_token({"sub": str(staff.id), "clinic_id": str(active_clinic_id), "role": staff.role, "name": staff.name})
+    return TokenResponse(access_token=token, staff_id=staff.id, name=staff.name, role=staff.role, clinic_id=active_clinic_id, clinic_name=clinic.name if clinic else "", multi_clinic=is_multi)
 
 @router.get("/me")
 async def me(staff=Depends(get_current_staff), db: AsyncSession = Depends(get_db)):

@@ -14,7 +14,7 @@ class LoginRequest(BaseModel):
     pin: str
     clinic_id: UUID
 class TokenResponse(BaseModel):
-    access_token: str; token_type: str = "bearer"; staff_id: UUID; name: str; role: str; clinic_id: UUID; clinic_name: str
+    access_token: str; token_type: str = "bearer"; staff_id: UUID; name: str; role: str; clinic_id: UUID; clinic_name: str; multi_clinic: bool = False
 
 # ─── CLINIC ──────────────────────────────────────────
 class ClinicOut(BaseModel):

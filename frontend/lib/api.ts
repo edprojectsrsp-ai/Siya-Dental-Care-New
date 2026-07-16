@@ -137,6 +137,7 @@ export async function login(staff_id: string, pin: string, clinic_id: string) {
     role: data.role,
     clinic_id: data.clinic_id,
     clinic_name: data.clinic_name,
+    multi_clinic: data.multi_clinic,
   });
   return data;
 }
@@ -155,6 +156,7 @@ export async function loginByPhone(phone: string, pin: string, clinic_id: string
     role: data.role,
     clinic_id: data.clinic_id,
     clinic_name: data.clinic_name,
+    multi_clinic: data.multi_clinic,
   });
   return data;
 }

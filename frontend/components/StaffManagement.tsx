@@ -126,6 +126,7 @@ function StaffFormModal({ A, show, clinics, editing, onClose, onSaved }: any) {
     name: editing?.name || "", phone: editing?.phone || "", email: editing?.email || "",
     role: editing?.role || "nurse", clinic_id: editing?.clinic_id || (clinics[0]?.id || ""),
     password: "", telegram_chat_id: editing?.telegram_chat_id || "",
+    multi_clinic: editing?.multi_clinic || false,
   });
   const [saving, setSaving] = useState(false);
   const isEdit = !!editing;
@@ -143,6 +144,7 @@ function StaffFormModal({ A, show, clinics, editing, onClose, onSaved }: any) {
           name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() || null,
           role: form.role, clinic_id: form.clinic_id || null,
           telegram_chat_id: form.telegram_chat_id.trim() || null,
+          multi_clinic: form.multi_clinic,
         });
         show(`✓ ${sanitizeText(form.name)} updated`);
       } else {
@@ -188,6 +190,11 @@ function StaffFormModal({ A, show, clinics, editing, onClose, onSaved }: any) {
             <option value="">— All clinics —</option>
             {clinics.map((c: any) => <option key={c.id} value={c.id}>{sanitizeText(c.name)}</option>)}
           </select>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, cursor: "pointer", fontSize: 14, fontWeight: 700, color: INK }}>
+            <input type="checkbox" checked={form.multi_clinic} onChange={e => setForm({ ...form, multi_clinic: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+            Access all clinics (can switch branches after login)
+          </label>
+          <p style={{ fontSize: 12, color: MUTE, marginTop: 4 }}>Enable for doctors, specialists, and admins who work across both clinics.</p>
         </>}
         {!isEdit && <>
           <label style={lbl}>Login Password</label>

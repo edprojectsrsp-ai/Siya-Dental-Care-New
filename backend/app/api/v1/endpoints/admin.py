@@ -34,12 +34,14 @@ class StaffCreate(BaseModel):
     password: Optional[str] = None   # login credential; auto-generated if omitted
     clinic_id: Optional[UUID] = None
     telegram_chat_id: Optional[str] = None
+    multi_clinic: bool = False       # can this account operate across all clinics?
 class StaffUpdate(BaseModel):
     name: Optional[str] = None; phone: Optional[str] = None
     role: Optional[str] = None; email: Optional[str] = None
     clinic_id: Optional[UUID] = None
     is_active: Optional[bool] = None
     telegram_chat_id: Optional[str] = None
+    multi_clinic: Optional[bool] = None
 class PinReset(BaseModel):
     new_pin: str
 class PasswordReset(BaseModel):
@@ -55,7 +57,7 @@ async def list_staff(include_inactive: bool = False, db: AsyncSession = Depends(
     _require_admin(staff)
     where = "" if include_inactive else "WHERE s.is_active=TRUE"
     rows = (await db.execute(sql_text(f"""SELECT s.id, s.name, s.phone, s.email, s.role, s.is_active, s.last_login_at,
-        s.created_at, s.deactivated_at, s.clinic_id, c.name AS clinic_name, s.telegram_chat_id
+        s.created_at, s.deactivated_at, s.clinic_id, c.name AS clinic_name, s.telegram_chat_id, s.multi_clinic
         FROM staff s LEFT JOIN clinics c ON c.id=s.clinic_id {where}
         ORDER BY s.is_active DESC, s.role, s.name"""))).mappings().all()
     return [{"id": str(r["id"]), "name": r["name"], "phone": r["phone"], "email": r["email"],
@@ -63,7 +65,8 @@ async def list_staff(include_inactive: bool = False, db: AsyncSession = Depends(
              "last_login_at": r["last_login_at"].isoformat() if r["last_login_at"] else None,
              "created_at": r["created_at"].isoformat() if r["created_at"] else None,
              "clinic_id": str(r["clinic_id"]) if r["clinic_id"] else None,
-             "clinic_name": r["clinic_name"], "telegram_chat_id": r["telegram_chat_id"]} for r in rows]
+             "clinic_name": r["clinic_name"], "telegram_chat_id": r["telegram_chat_id"],
+             "multi_clinic": bool(r["multi_clinic"])} for r in rows]
 
 @router.post("/staff", status_code=201)
 async def create_staff(body: StaffCreate, db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
@@ -78,11 +81,11 @@ async def create_staff(body: StaffCreate, db: AsyncSession = Depends(get_db), st
         pw = body.password
     else:
         pw = _generate_temp_password(); temp_pw = pw
-    row = (await db.execute(sql_text("""INSERT INTO staff (name, phone, email, role, pin_hash, password_hash, clinic_id, telegram_chat_id, created_by, is_active)
-        VALUES(:n, :p, :e, :r, :pin, :pw, :c, :tg, :by, TRUE) RETURNING id"""),
+    row = (await db.execute(sql_text("""INSERT INTO staff (name, phone, email, role, pin_hash, password_hash, clinic_id, telegram_chat_id, multi_clinic, created_by, is_active)
+        VALUES(:n, :p, :e, :r, :pin, :pw, :c, :tg, :mc, :by, TRUE) RETURNING id"""),
         {"n": body.name.strip(), "p": body.phone.strip(), "e": body.email, "r": body.role,
          "pin": _hash_pin(body.pin), "pw": _hash_pin(pw), "c": str(body.clinic_id) if body.clinic_id else None,
-         "tg": body.telegram_chat_id, "by": str(staff["staff_id"])})).mappings().one()
+         "tg": body.telegram_chat_id, "mc": body.multi_clinic, "by": str(staff["staff_id"])})).mappings().one()
     return {"id": str(row["id"]), "default_pin": body.pin, "temp_password": temp_pw}
 
 @router.patch("/staff/{staff_id}")
