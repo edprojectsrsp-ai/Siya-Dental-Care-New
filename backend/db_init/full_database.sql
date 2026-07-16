@@ -7519,6 +7519,36 @@ ALTER TABLE site_theme ADD COLUMN IF NOT EXISTS google_review_count text;
 UPDATE site_theme SET google_rating = COALESCE(google_rating, '4.9'),
                       google_review_count = COALESCE(google_review_count, '120+');
 
+-- Automatically refreshed Google review metadata.
+ALTER TABLE site_testimonials
+  ADD COLUMN IF NOT EXISTS google_review_name text,
+  ADD COLUMN IF NOT EXISTS google_review_url text,
+  ADD COLUMN IF NOT EXISTS google_author_url text,
+  ADD COLUMN IF NOT EXISTS google_flag_url text,
+  ADD COLUMN IF NOT EXISTS google_publish_time timestamptz,
+  ADD COLUMN IF NOT EXISTS google_synced_at timestamptz,
+  ADD COLUMN IF NOT EXISTS google_place_id text;
+
+ALTER TABLE site_theme
+  ADD COLUMN IF NOT EXISTS google_reviews_synced_at timestamptz;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_site_testimonials_google_review
+  ON site_testimonials (google_review_name)
+  WHERE source = 'google' AND google_review_name IS NOT NULL;
+
+-- Privacy-friendly public website visitor count.
+CREATE TABLE IF NOT EXISTS public_site_visitor_days (
+  visitor_hash char(64) NOT NULL,
+  visit_date date NOT NULL DEFAULT CURRENT_DATE,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  page_views integer NOT NULL DEFAULT 1,
+  PRIMARY KEY (visitor_hash, visit_date)
+);
+
+CREATE INDEX IF NOT EXISTS ix_public_site_visitor_days_date
+  ON public_site_visitor_days (visit_date DESC);
+
 -- Treatment card billing confirmation gate (added post-dump; idempotent for fresh installs)
 ALTER TABLE treatment_plan_items
   ADD COLUMN IF NOT EXISTS price_confirmed boolean NOT NULL DEFAULT false;

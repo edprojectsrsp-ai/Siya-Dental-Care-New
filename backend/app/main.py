@@ -58,6 +58,11 @@ from app.api.v1.endpoints.bundle_x import (
     archived_router,
 )
 from app.jobs.reminders_scheduler import start_reminder_scheduler, scheduler_router as reminders_scheduler_router
+from app.jobs.google_reviews_scheduler import (
+    router as google_reviews_router,
+    start_google_reviews_scheduler,
+    stop_google_reviews_scheduler,
+)
 
 settings = get_settings()
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, docs_url="/docs")
@@ -120,6 +125,7 @@ app.include_router(ar_public_router)  # no prefix — has /api in route
 app.include_router(ar_admin_router, prefix="/api")
 app.include_router(bundle_u_router, prefix="/api")
 app.include_router(reminders_scheduler_router, prefix="/api")
+app.include_router(google_reviews_router, prefix="/api")
 app.include_router(bundle_v_router, prefix="/api")
 app.include_router(bundle_w_router, prefix="/api")
 app.include_router(bundle_w_public_router, prefix="/api")
@@ -141,6 +147,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.on_event("startup")
 async def startup():
     await start_reminder_scheduler()
+    await start_google_reviews_scheduler()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await stop_google_reviews_scheduler()
 
 @app.get("/")
 async def root(): return {"app": settings.APP_NAME, "version": settings.APP_VERSION, "docs": "/docs"}

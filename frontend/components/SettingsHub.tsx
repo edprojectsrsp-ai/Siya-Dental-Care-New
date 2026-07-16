@@ -51,6 +51,7 @@ const TABS = [
   { id: "labs",       label: "Lab Vendors",    icon: "🧪" },
   { id: "spec_mgmt",  label: "Specialists",    icon: "👨‍⚕️" },
   { id: "modules",    label: "Module Access",  icon: "🔒" },
+  { id: "security",   label: "My Account",     icon: "🔐" },
 ] as const;
 
 export default function SettingsHub({
@@ -147,8 +148,69 @@ export default function SettingsHub({
           {tab === "labs"       && <SettingsLabsTab clinicId={clinicId} />}
           {tab === "spec_mgmt"  && <SettingsSpecialistsTab clinicId={clinicId} />}
           {tab === "modules"    && <SettingsModuleVisibility clinicId={clinicId} />}
+          {tab === "security"   && <SecurityTab show={show} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECURITY TAB — optional password login (stronger than the 4-digit PIN)
+// ═══════════════════════════════════════════════════════════════
+function SecurityTab({ show }: { show: (msg: string) => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const setPasswordAction = async () => {
+    if (password.length < 8) { show("Password must be at least 8 characters"); return; }
+    if (password !== confirm) { show("Passwords don't match"); return; }
+    setSaving(true);
+    try {
+      await api.authSetPassword(password);
+      show("✓ Password set — you can now log in with your PIN or this password");
+      setPassword(""); setConfirm("");
+    } catch (e: any) {
+      show("Error: " + e.message);
+    } finally { setSaving(false); }
+  };
+
+  const clearPasswordAction = async () => {
+    setSaving(true);
+    try {
+      await api.authClearPassword();
+      show("Password removed — PIN-only login restored");
+    } catch (e: any) {
+      show("Error: " + e.message);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div>
+      <SectionTitle>Stronger login</SectionTitle>
+      <P>
+        Your 4-digit PIN still works. Optionally set a longer password for extra protection on this
+        account — either credential logs you in.
+      </P>
+      <Card>
+        <Field label="New password (min 8 characters)">
+          <Input type="password" value={password} onChange={setPassword} placeholder="At least 8 characters" />
+        </Field>
+        <Field label="Confirm password">
+          <Input type="password" value={confirm} onChange={setConfirm} placeholder="Repeat password" />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <button onClick={setPasswordAction} disabled={saving || !password}
+            style={btnPrimary(A)}>
+            {saving ? "Saving…" : "Set Password"}
+          </button>
+          <button onClick={clearPasswordAction} disabled={saving}
+            style={{ border: `1px solid ${LINE}`, background: "#fff", color: MUTE, borderRadius: 10, padding: "10px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            Remove Password
+          </button>
+        </div>
+      </Card>
     </div>
   );
 }

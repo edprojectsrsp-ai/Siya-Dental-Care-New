@@ -28,12 +28,12 @@ function Toast({ msg }: { msg: string }) {
   );
 }
 
-// ── Login (PIN) ──
+// ── Login (password) ──
 function MobileLogin({ onDone }: { onDone: () => void }) {
   const [clinics, setClinics] = useState<any[]>([]);
   const [clinicId, setClinicId] = useState("");
   const [phone, setPhone] = useState("");
-  const [pin, setPin] = useState("");
+  const [pin, setPin] = useState("");   // holds the password (backend field is still `pin`)
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -45,7 +45,7 @@ function MobileLogin({ onDone }: { onDone: () => void }) {
   }, []);
   const go = async () => {
     setErr(""); setBusy(true);
-    try { await api.login(phone.trim(), pin.trim(), clinicId); onDone(); }
+    try { await api.loginByPhone(phone.trim(), pin.trim(), clinicId); onDone(); }
     catch (e: any) { setErr(e.message || "Login failed"); }
     finally { setBusy(false); }
   };
@@ -62,7 +62,7 @@ function MobileLogin({ onDone }: { onDone: () => void }) {
           </select>
         )}
         <input style={inputS} placeholder="Phone number" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} />
-        <input style={inputS} placeholder="PIN" type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} />
+        <input style={inputS} placeholder="Password" type="password" autoComplete="current-password" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} />
         {err && <div style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, fontWeight: 700, marginBottom: 12 }}>⚠ {err}</div>}
         <button disabled={busy || !phone || !pin} onClick={go} style={{ ...btn(A), width: "100%", padding: 15, fontSize: 16, opacity: busy ? .7 : 1 }}>
           {busy ? "Signing in…" : "Sign in"}

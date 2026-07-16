@@ -13,7 +13,10 @@ out/
 
 # Environment & secrets
 .env
+.env.local
+.env.*.local
 backend/.env
+# .env.example files are intentionally NOT ignored (they hold placeholders, no secrets)
 
 # Runtime uploads & logs
 uploads/
@@ -40,3 +43,12 @@ _ref_clinical_site/
 /Siya_Dental_Database_Plain_*.sql
 # Terminal session logs
 terminals/
+
+# SQL/data exports (regenerate from backend/db_init/)
+exports/
+
+# Editor / tool workspace config
+.grok/
+
+# Stray scratch files
+frontend/app/test-write.txt

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     ANTHROPIC_API_KEY: str = ""
+    GOOGLE_PLACES_API_KEY: str = ""
+    GOOGLE_REVIEWS_SYNC_ENABLED: bool = True
+    GOOGLE_REVIEWS_SYNC_MINUTES: int = 360
+    GOOGLE_REVIEWS_STARTUP_DELAY_SECONDS: int = 5
     N8N_BASE_URL: str = "http://localhost:5678"
 
     model_config = {"env_file": str(ENV_FILE), "extra": "ignore"}

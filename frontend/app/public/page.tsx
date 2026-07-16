@@ -1,40 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import PublicMarketingSite from "@/components/PublicMarketingSite";
+/**
+ * Legacy /public URL — keep working for old links and bookmarks.
+ * Canonical public homepage is now `/`.
+ */
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-const FALLBACK_CLINIC_ID = "a1111111-1111-1111-1111-111111111111";
-
-export default function PublicWebsitePage() {
-  const [content, setContent] = useState<Record<string, unknown> | null>(null);
-
+export default function PublicWebsiteRedirect() {
+  const router = useRouter();
   useEffect(() => {
-    fetch("/api/site-2026/content")
-      .then((response) => response.json())
-      .then((data) => setContent(data))
-      .catch(() =>
-        setContent({
-          theme: {},
-          clinics: [],
-          services: [],
-          doctors: [],
-          testimonials: [],
-          videos: [],
-          gallery: [],
-        })
-      );
-  }, []);
+    router.replace("/");
+  }, [router]);
 
-  if (!content) {
-    return (
-      <div className="ps-loading" style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
-        Loading Siya Dental Care…
+  return (
+    <div className="ps-root">
+      <div className="ps-loading" aria-live="polite">
+        <div className="ps-loading-mark" aria-hidden="true">S</div>
+        <p>Opening website…</p>
       </div>
-    );
-  }
-
-  const clinics = (content.clinics as Record<string, string>[]) || [];
-  const clinicId = clinics[0]?.id || FALLBACK_CLINIC_ID;
-
-  return <PublicMarketingSite clinicId={clinicId} content={content} />;
+    </div>
+  );
 }
