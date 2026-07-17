@@ -1,4 +1,9 @@
 /** @type {import('next').NextConfig} */
+const backendBase =
+  process.env.INTERNAL_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://127.0.0.1:8000";
+
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["three", "@react-three/fiber", "@react-three/drei"],
@@ -39,7 +44,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:8000/api/:path*",
+        destination: `${backendBase}/api/:path*`,
       },
     ];
   },
