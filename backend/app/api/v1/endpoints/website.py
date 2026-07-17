@@ -61,6 +61,7 @@ def _extract_youtube_id(url: str) -> Optional[str]:
 # ════════════════════════════════════════════════════════════════════
 class ClinicPublicInfoIn(BaseModel):
     tagline: Optional[str] = None
+    google_place_id: Optional[str] = None
     google_maps_embed_url: Optional[str] = None
     street_view_embed_url: Optional[str] = None
     directions_url: Optional[str] = None
@@ -156,7 +157,7 @@ class PublicVisitIn(BaseModel):
 async def list_clinics_admin(db: AsyncSession = Depends(get_db), staff=Depends(get_current_staff)):
     """All clinics with public-website fields. Used by the Website Manager UI."""
     rows = (await db.execute(sql_text("""
-        SELECT id, name, short_name, address, phone, whatsapp_number, tagline,
+        SELECT id, name, short_name, address, phone, whatsapp_number, tagline, google_place_id,
                google_maps_embed_url, street_view_embed_url, directions_url,
                latitude, longitude, hero_image_url, theme_color, public_phone,
                whatsapp_link, show_on_public_site, display_order, logo_url
@@ -466,11 +467,7 @@ async def public_site_2026(db: AsyncSession = Depends(get_db)):
         FROM site_testimonials
         WHERE is_active = TRUE
           AND rating >= 4
-          AND (
-              COALESCE(source, 'manual') <> 'google'
-              OR google_synced_at IS NULL
-              OR google_synced_at >= now() - INTERVAL '90 days'
-          )
+          AND NULLIF(BTRIM(COALESCE(text, '')), '') IS NOT NULL
         ORDER BY is_featured DESC, order_idx
     """))).mappings().all()
     videos = (await db.execute(sql_text("""

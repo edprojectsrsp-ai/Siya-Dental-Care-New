@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
+from app.core.schema_bootstrap import ensure_google_places_schema
 from app.api.v1.router import router
 from app.api.uploads import router as uploads_router, public_router, public_site_router
 
@@ -146,6 +147,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.on_event("startup")
 async def startup():
+    await ensure_google_places_schema()
     await start_reminder_scheduler()
     await start_google_reviews_scheduler()
 

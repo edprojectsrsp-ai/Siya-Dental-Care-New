@@ -418,7 +418,7 @@ function GoogleReviewsCarousel({
 
     let raf = 0;
     let last = performance.now();
-    const SPEED = 32; // px per second — calm clinic pace
+    const SPEED = 42; // px per second — slightly quicker without feeling rushed
 
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -1012,8 +1012,8 @@ export default function PublicMarketingSite({
   const hasStreetView = Boolean(activeStreetUrl);
 
   const reviewCards = (testimonials as Record<string, string>[]).filter(
-    (review) => Number(review.rating || 0) >= 4,
-  );
+      (review) => Number(review.rating || 0) >= 4 && String(review.text || "").trim().length > 0,
+    );
 
   /** Clinic tour slideshow — only images staff uploaded to gallery (clinic / treatment / hero). */
   const clinicPhotos = useMemo(() => {
