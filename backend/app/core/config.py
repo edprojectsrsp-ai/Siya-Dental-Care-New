@@ -30,6 +30,18 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": str(ENV_FILE), "extra": "ignore"}
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v):
+        if not isinstance(v, str):
+            return v
+        url = v.strip()
+        if url.startswith("postgresql://") and "+asyncpg" not in url:
+            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgres://") and "+asyncpg" not in url:
+            return url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return url
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def parse_debug(cls, v):
