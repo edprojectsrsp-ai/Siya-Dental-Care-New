@@ -3111,18 +3111,18 @@ COPY public.bot_event_log (id, clinic_id, channel, direction, patient_id, from_i
 --
 
 COPY public.business_hours (id, clinic_id, weekday, is_closed, open_time, close_time, break_start, break_end) FROM stdin;
-8cd786bd-1f92-4c38-a475-0a23bb88342c	b2222222-2222-2222-2222-222222222222	3	f	09:00:00	19:00:00	14:00:00	15:00:00
-9842b7aa-7f04-4a8b-ade0-17500864a201	a1111111-1111-1111-1111-111111111111	5	f	09:00:00	19:00:00	14:00:00	15:00:00
-b4da9450-f256-4365-adb4-7d118f4c42db	b2222222-2222-2222-2222-222222222222	4	f	09:00:00	19:00:00	14:00:00	15:00:00
-13932e8b-aae1-443b-96d1-d7320ac26c90	b2222222-2222-2222-2222-222222222222	1	f	09:00:00	19:00:00	14:00:00	15:00:00
-d4364c58-ba9d-427b-a1c3-c83e2cf1a618	a1111111-1111-1111-1111-111111111111	0	f	09:00:00	19:00:00	14:00:00	15:00:00
-f3c9e5d8-e50b-42b1-ad0d-c0a68f8cf596	a1111111-1111-1111-1111-111111111111	2	f	09:00:00	19:00:00	14:00:00	15:00:00
-9b8e8895-8f42-4abc-9615-eb40fb784353	a1111111-1111-1111-1111-111111111111	4	f	09:00:00	19:00:00	14:00:00	15:00:00
-6b5addce-81d0-47c3-8add-98db7005f131	a1111111-1111-1111-1111-111111111111	1	f	09:00:00	19:00:00	14:00:00	15:00:00
-77b38a66-556f-453d-a63a-fb0699d33a1e	a1111111-1111-1111-1111-111111111111	3	f	09:00:00	19:00:00	14:00:00	15:00:00
-0e44a98e-aec0-4d99-8f3e-2b822aa4a452	b2222222-2222-2222-2222-222222222222	5	f	09:00:00	19:00:00	14:00:00	15:00:00
-0d126faa-4fcc-4448-aefd-68fba344d44d	b2222222-2222-2222-2222-222222222222	0	f	09:00:00	19:00:00	14:00:00	15:00:00
-cf8376fa-a29e-4716-b924-78b55a7a9577	b2222222-2222-2222-2222-222222222222	2	f	09:00:00	19:00:00	14:00:00	15:00:00
+8cd786bd-1f92-4c38-a475-0a23bb88342c	b2222222-2222-2222-2222-222222222222	3	f	09:00:00	20:00:00	13:00:00	17:00:00
+9842b7aa-7f04-4a8b-ade0-17500864a201	a1111111-1111-1111-1111-111111111111	5	f	09:00:00	20:00:00	13:00:00	17:00:00
+b4da9450-f256-4365-adb4-7d118f4c42db	b2222222-2222-2222-2222-222222222222	4	f	09:00:00	20:00:00	13:00:00	17:00:00
+13932e8b-aae1-443b-96d1-d7320ac26c90	b2222222-2222-2222-2222-222222222222	1	f	09:00:00	20:00:00	13:00:00	17:00:00
+d4364c58-ba9d-427b-a1c3-c83e2cf1a618	a1111111-1111-1111-1111-111111111111	0	f	09:00:00	20:00:00	13:00:00	17:00:00
+f3c9e5d8-e50b-42b1-ad0d-c0a68f8cf596	a1111111-1111-1111-1111-111111111111	2	f	09:00:00	20:00:00	13:00:00	17:00:00
+9b8e8895-8f42-4abc-9615-eb40fb784353	a1111111-1111-1111-1111-111111111111	4	f	09:00:00	20:00:00	13:00:00	17:00:00
+6b5addce-81d0-47c3-8add-98db7005f131	a1111111-1111-1111-1111-111111111111	1	f	09:00:00	20:00:00	13:00:00	17:00:00
+77b38a66-556f-453d-a63a-fb0699d33a1e	a1111111-1111-1111-1111-111111111111	3	f	09:00:00	20:00:00	13:00:00	17:00:00
+0e44a98e-aec0-4d99-8f3e-2b822aa4a452	b2222222-2222-2222-2222-222222222222	5	f	09:00:00	20:00:00	13:00:00	17:00:00
+0d126faa-4fcc-4448-aefd-68fba344d44d	b2222222-2222-2222-2222-222222222222	0	f	09:00:00	20:00:00	13:00:00	17:00:00
+cf8376fa-a29e-4716-b924-78b55a7a9577	b2222222-2222-2222-2222-222222222222	2	f	09:00:00	20:00:00	13:00:00	17:00:00
 1bfab5d3-f5a1-4957-a26e-d644bd50940d	a1111111-1111-1111-1111-111111111111	6	t	\N	\N	\N	\N
 02f6d9fd-d1bc-495a-a272-5907268bffa1	b2222222-2222-2222-2222-222222222222	6	t	\N	\N	\N	\N
 \.
@@ -3167,14 +3167,14 @@ COPY public.clinic_info (id, key, value, updated_at) FROM stdin;
 2	tagline	Implant & Orthodontic Centre	2026-06-08 15:55:03.403073+05:30
 3	doctor_name	Dr. Madhu Edward	2026-06-08 15:55:03.403073+05:30
 4	doctor_qualification	BDS, Reg. No. OD-28456	2026-06-08 15:55:03.403073+05:30
-5	branch1_name	Main Branch	2026-06-08 15:55:03.403073+05:30
-6	branch1_address	Rourkela, Odisha	2026-06-08 15:55:03.403073+05:30
+5	branch1_name	Daily Market	2026-06-08 15:55:03.403073+05:30
+6	branch1_address	PETROL PUMP, MADU MAHARAJ GALI, near DAILY MARKET, DAILY MARKET, Udit Nagar, Rourkela, Odisha 769001	2026-06-08 15:55:03.403073+05:30
 7	branch1_phone		2026-06-08 15:55:03.403073+05:30
-8	branch1_hours	Mon–Sat: 9:00 AM – 7:00 PM	2026-06-08 15:55:03.403073+05:30
-9	branch2_name	Branch 2	2026-06-08 15:55:03.403073+05:30
-10	branch2_address	Rourkela, Odisha	2026-06-08 15:55:03.403073+05:30
+8	branch1_hours	Mon-Sat: 09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM	2026-06-08 15:55:03.403073+05:30
+9	branch2_name	Jhirpani	2026-06-08 15:55:03.403073+05:30
+10	branch2_address	1st floor, wonder medicine complex, near RC Church, Jhirpani, Rourkela, Odisha 769042	2026-06-08 15:55:03.403073+05:30
 11	branch2_phone		2026-06-08 15:55:03.403073+05:30
-12	branch2_hours	Mon–Sat: 10:00 AM – 5:00 PM	2026-06-08 15:55:03.403073+05:30
+12	branch2_hours	Mon-Sat: 09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM	2026-06-08 15:55:03.403073+05:30
 13	about	Expert dental care with a gentle touch. Specializing in implants, orthodontics, and comprehensive family dentistry.	2026-06-08 15:55:03.403073+05:30
 \.
 
@@ -3335,8 +3335,8 @@ b599d040-2604-4e93-b407-aeb4f3947535	diag_treatment	Calculus	Root Canal (RCT)	a1
 --
 
 COPY public.clinics (id, name, short_name, address, google_maps_link, phone, whatsapp_number, timings, logo_url, doctor_name, doctor_degree, doctor_reg_no, signature_url, is_active, created_at, updated_at, tagline, google_maps_embed_url, street_view_embed_url, directions_url, latitude, longitude, hero_image_url, theme_color, public_phone, whatsapp_link, show_on_public_site, display_order) FROM stdin;
-a1111111-1111-1111-1111-111111111111	Siya Dental Care — Main Branch	Main	Udit Nagar, Rourkela, Odisha - 769012	\N	+919876500001	+919876500001	{"sun": "Closed", "mon_sat": "10:00 AM – 1:00 PM, 4:00 PM – 8:00 PM"}	\N	Dr. Madhu Edward	BDS	OD-28456	\N	t	2026-06-08 15:50:32.978312+05:30	2026-06-08 15:50:32.978312+05:30	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	0
-b2222222-2222-2222-2222-222222222222	Siya Dental Care — Sector 2	Sector 2	Sector 2, Near SBI Main Branch, Rourkela, Odisha	\N	+919876500002	+919876500001	{"sun": "Closed", "mon_sat": "10:00 AM – 2:00 PM, 5:00 PM – 9:00 PM"}	\N	Dr. Madhu Edward	BDS	OD-28456	\N	t	2026-06-08 15:50:32.978312+05:30	2026-06-08 15:50:32.978312+05:30	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	0
+a1111111-1111-1111-1111-111111111111	Siya Dental Care - Daily Market	Daily Market	PETROL PUMP, MADU MAHARAJ GALI, near DAILY MARKET, DAILY MARKET, Udit Nagar, Rourkela, Odisha 769001	\N	+919876500001	+919876500001	{"sun": "Closed", "mon_sat": "09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM"}	\N	Dr. Madhu Edward	BDS	OD-28456	\N	t	2026-06-08 15:50:32.978312+05:30	2026-06-08 15:50:32.978312+05:30	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	0
+b2222222-2222-2222-2222-222222222222	Siya Dental Care - Jhirpani	Jhirpani	1st floor, wonder medicine complex, near RC Church, Jhirpani, Rourkela, Odisha 769042	\N	+919876500002	+919876500001	{"sun": "Closed", "mon_sat": "09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM"}	\N	Dr. Madhu Edward	BDS	OD-28456	\N	t	2026-06-08 15:50:32.978312+05:30	2026-06-08 15:50:32.978312+05:30	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	0
 \.
 
 

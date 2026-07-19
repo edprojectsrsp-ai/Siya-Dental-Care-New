@@ -309,8 +309,8 @@ CREATE INDEX idx_health_patient ON patient_health(patient_id);
 
 -- ─── SEED: CLINICS ───────────────────────────────────
 INSERT INTO clinics (id, name, short_name, address, phone, whatsapp_number, doctor_name, doctor_degree, doctor_reg_no, timings) VALUES
-('a1111111-1111-1111-1111-111111111111', 'SmileCare Dental — Main Branch', 'Main', 'Civil Township, Rourkela, Odisha', '+919876500001', '+919876500001', 'Dr. Meera Sharma', 'BDS, MDS (Conservative Dentistry)', 'OD-12345', '{"mon_sat": "10:00 AM – 1:00 PM, 4:00 PM – 8:00 PM", "sun": "Closed"}'),
-('b2222222-2222-2222-2222-222222222222', 'SmileCare Dental — Sector 2', 'Sector 2', 'Sector 2, Near SBI, Rourkela, Odisha', '+919876500002', '+919876500001', 'Dr. Meera Sharma', 'BDS, MDS', 'OD-12345', '{"mon_sat": "10:00 AM – 2:00 PM, 5:00 PM – 9:00 PM", "sun": "Closed"}');
+('a1111111-1111-1111-1111-111111111111', 'SmileCare Dental — Main Branch', 'Main', 'Civil Township, Rourkela, Odisha', '+919876500001', '+919876500001', 'Dr. Meera Sharma', 'BDS, MDS (Conservative Dentistry)', 'OD-12345', '{"mon_sat": "09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM", "sun": "Closed"}'),
+('b2222222-2222-2222-2222-222222222222', 'SmileCare Dental — Sector 2', 'Sector 2', 'Sector 2, Near SBI, Rourkela, Odisha', '+919876500002', '+919876500001', 'Dr. Meera Sharma', 'BDS, MDS', 'OD-12345', '{"mon_sat": "09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM", "sun": "Closed"}');
 
 INSERT INTO staff (id, clinic_id, name, role, phone, pin_hash) VALUES
 ('d1111111-1111-1111-1111-111111111111', 'a1111111-1111-1111-1111-111111111111', 'Dr. Meera Sharma', 'doctor', '+919876500001', '$2b$12$LJ3m9X9Z8V8K4Y5W6Q7R8OzX1A2B3C4D5E6F7G8H9I0J1K2L3M4'),
@@ -389,4 +389,3 @@ INSERT INTO procedure_medicine_map (procedure_id, medicine_id) VALUES
 ('p023', 'm019'), -- Whitening → Desensitizing
 ('p025', 'm014'), ('p025', 'm004'), -- Deep Cleaning → Chlorhex, Metro
 ('p026', 'm002'), ('p026', 'm004'), ('p026', 'm007'), ('p026', 'm012'), ('p026', 'm014'); -- Flap → full combo
-

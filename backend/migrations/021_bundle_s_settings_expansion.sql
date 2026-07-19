@@ -62,9 +62,9 @@ CREATE TABLE IF NOT EXISTS business_hours (
     UNIQUE (clinic_id, weekday)
 );
 
--- Seed Mon-Sat 9-7 with 2-3 break, Sun closed
+-- Seed Mon-Sat 9-1 and 5-8, Sun closed
 INSERT INTO business_hours (clinic_id, weekday, is_closed, open_time, close_time, break_start, break_end)
-SELECT c.id, wd, FALSE, '09:00', '19:00', '14:00', '15:00'
+SELECT c.id, wd, FALSE, '09:00', '20:00', '13:00', '17:00'
 FROM clinics c, generate_series(0, 5) wd
 WHERE NOT EXISTS (
     SELECT 1 FROM business_hours bh WHERE bh.clinic_id = c.id AND bh.weekday = wd

@@ -37,14 +37,14 @@ INSERT INTO clinic_info (key, value) VALUES
     ('tagline',             'Implant & Orthodontic Centre'),
     ('doctor_name',         'Dr. Madhu Edward'),
     ('doctor_qualification','BDS, Reg. No. OD-28456'),
-    ('branch1_name',        'Main Branch'),
-    ('branch1_address',     'Rourkela, Odisha'),
+    ('branch1_name',        'Daily Market'),
+    ('branch1_address',     'PETROL PUMP, MADU MAHARAJ GALI, near DAILY MARKET, DAILY MARKET, Udit Nagar, Rourkela, Odisha 769001'),
     ('branch1_phone',       ''),
-    ('branch1_hours',       'Mon–Sat: 9:00 AM – 7:00 PM'),
-    ('branch2_name',        'Branch 2'),
-    ('branch2_address',     'Rourkela, Odisha'),
+    ('branch1_hours',       'Mon-Sat: 09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM'),
+    ('branch2_name',        'Jhirpani'),
+    ('branch2_address',     '1st floor, wonder medicine complex, near RC Church, Jhirpani, Rourkela, Odisha 769042'),
     ('branch2_phone',       ''),
-    ('branch2_hours',       'Mon–Sat: 10:00 AM – 5:00 PM'),
+    ('branch2_hours',       'Mon-Sat: 09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM'),
     ('about',               'Expert dental care with a gentle touch. Specializing in implants, orthodontics, and comprehensive family dentistry.')
 ON CONFLICT (key) DO NOTHING;
 

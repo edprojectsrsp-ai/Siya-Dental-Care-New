@@ -671,23 +671,30 @@ const JOURNEY = [
   { step: "3", title: "Calm clinic visit", body: "Exam, photos if needed, and a clear written plan — no pressure." },
 ];
 
+const PUBLIC_CLINIC_TIMINGS = "Mon-Sat: 09:00 AM - 1:00 PM, 5:00 PM - 8:00 PM";
+
 function formatTimings(raw: unknown): string {
-  if (!raw) return "Call for timings";
+  if (!raw) return PUBLIC_CLINIC_TIMINGS;
   if (typeof raw === "string") {
     try {
       return formatTimings(JSON.parse(raw));
     } catch {
-      return raw;
+      return PUBLIC_CLINIC_TIMINGS;
     }
   }
   if (typeof raw === "object" && raw) {
     const t = raw as Record<string, string>;
-    const mon = t.mon_sat || t.weekday || t.mon || t.weekdays;
     const sun = t.sun || t.sunday;
-    const parts = [mon ? `Mon–Sat: ${mon}` : null, sun ? `Sun: ${sun}` : null].filter(Boolean);
-    return parts.join(" · ") || "Call for timings";
+    const parts = [PUBLIC_CLINIC_TIMINGS, sun ? `Sun: ${sun}` : null].filter(Boolean);
+    return parts.join(" · ");
   }
-  return "Call for timings";
+  return PUBLIC_CLINIC_TIMINGS;
+}
+
+function mapEmbedForClinic(clinic: Record<string, string>, fallbackAddress: string, siteTitle: string) {
+  const address = clinic.address || fallbackAddress || siteTitle;
+  const label = clinic.short_name || clinic.name || "Siya Dental Care";
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${label}, ${address}`)}&output=embed`;
 }
 
 function distanceKm(
@@ -832,7 +839,6 @@ export default function PublicMarketingSite({
     clinic.whatsapp_link ||
     (clinic.whatsapp_number ? buildWhatsAppLink(String(clinic.whatsapp_number), "") : "") ||
     (phone ? buildWhatsAppLink(phone, "") : "");
-  const mapUrl = clinic.google_maps_embed_url || "";
   const streetViewUrl = clinic.street_view_embed_url || "";
   const directionsUrl = clinic.directions_url || "";
   const officeAddress = clinic.address || "Visit us for directions and hours.";
@@ -986,11 +992,10 @@ export default function PublicMarketingSite({
   ];
 
   const activeAddress = activeClinic.address || officeAddress;
-  const activeMapUrl = activeClinic.google_maps_embed_url || mapUrl;
   const activeStreetUrl = activeClinic.street_view_embed_url || streetViewUrl;
   const activeDirections = activeClinic.directions_url || directionsUrl;
   const mapQuery = encodeURIComponent(activeAddress || siteTitle);
-  const mapEmbed = activeMapUrl || `https://www.google.com/maps?q=${mapQuery}&output=embed`;
+  const mapEmbed = mapEmbedForClinic(activeClinic, officeAddress, siteTitle);
   const streetEmbed =
     activeStreetUrl || `https://www.google.com/maps?q=${mapQuery}&layer=c&z=17&output=embed`;
 
