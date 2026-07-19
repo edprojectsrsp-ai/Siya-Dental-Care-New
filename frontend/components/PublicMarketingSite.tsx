@@ -692,6 +692,11 @@ function formatTimings(raw: unknown): string {
 }
 
 function mapEmbedForClinic(clinic: Record<string, string>, fallbackAddress: string, siteTitle: string) {
+  const latitude = Number(clinic.latitude);
+  const longitude = Number(clinic.longitude);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    return `https://www.google.com/maps?q=${latitude},${longitude}&z=17&output=embed`;
+  }
   const address = clinic.address || fallbackAddress || siteTitle;
   const label = clinic.short_name || clinic.name || "Siya Dental Care";
   return `https://www.google.com/maps?q=${encodeURIComponent(`${label}, ${address}`)}&output=embed`;
