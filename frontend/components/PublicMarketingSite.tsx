@@ -692,6 +692,9 @@ function formatTimings(raw: unknown): string {
 }
 
 function mapEmbedForClinic(clinic: Record<string, string>, fallbackAddress: string, siteTitle: string) {
+  const storedEmbed = String(clinic.google_maps_embed_url || "").trim();
+  if (storedEmbed) return storedEmbed;
+
   const latitude = Number(clinic.latitude);
   const longitude = Number(clinic.longitude);
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
