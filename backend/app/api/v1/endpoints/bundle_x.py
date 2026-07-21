@@ -126,7 +126,7 @@ KNOWN_MODULES = [
     "gallery", "website", "consult", "messages", "bulkwa", "settings",
     "workshop", "archived", "revenue", "mypractice",
 ]
-KNOWN_ROLES = ["doctor", "admin", "receptionist", "specialist"]
+KNOWN_ROLES = ["doctor", "admin", "nurse", "receptionist", "specialist"]
 
 
 @modvis_router.get("")

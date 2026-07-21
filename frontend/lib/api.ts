@@ -99,7 +99,8 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     window.clearTimeout(timeout);
   }
 
-  if (res.status === 401) {
+  const isLoginRequest = path === "/auth/login";
+  if (res.status === 401 && !isLoginRequest) {
     clearToken();
     notifySessionExpired();
     throw new Error("Session expired");
