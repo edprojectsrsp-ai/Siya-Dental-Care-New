@@ -22,6 +22,7 @@ const MODULE_LABELS: Record<string, string> = {
   counters: "📊 Counters", specialists: "👨‍⚕️ Specialists", staff: "🧑‍💼 User Control",
   casemanager: "🛟 Case Manager", website: "🌐 Website", consult: "📞 Phone Consult",
   messages: "💬 Messages", bulkwa: "📲 Bulk WhatsApp", settings: "⚙️ Settings",
+  mypractice: "🩺 My Practice",
 };
 
 const BTN_LABELS: Record<string, string> = {
@@ -38,11 +39,24 @@ const BTN_LABELS: Record<string, string> = {
 };
 const BTN_KEYS = Object.keys(BTN_LABELS);
 
-const ROLES = ["doctor", "admin", "receptionist", "specialist"];
+const ROLES = ["doctor", "admin", "nurse", "receptionist", "specialist"];
 const ROLE_LABELS: Record<string, string> = {
-  doctor: "👨‍⚕️ Doctor", admin: "🔑 Admin", receptionist: "💁 Receptionist/Nurse", specialist: "🩺 Specialist",
+  doctor: "👨‍⚕️ Doctor", admin: "🔑 Admin", nurse: "💁 Nurse", receptionist: "💁 Receptionist", specialist: "🩺 Specialist",
 };
 const MODULES = Object.keys(MODULE_LABELS);
+
+const DEFAULT_MODULES_BY_ROLE: Record<string, Set<string>> = {
+  doctor: new Set(MODULES.filter(mod => mod !== "mypractice")),
+  admin: new Set(MODULES.filter(mod => mod !== "mypractice")),
+  nurse: new Set(["appointments", "patients", "queue", "lab"]),
+  receptionist: new Set(["appointments", "patients", "queue", "lab"]),
+  specialist: new Set(["queue", "patients", "lab", "mypractice"]),
+};
+
+const defaultVisible = (role: string, key: string) => {
+  if (key.startsWith("btn_")) return true;
+  return DEFAULT_MODULES_BY_ROLE[role]?.has(key) ?? false;
+};
 
 export default function SettingsModuleVisibility({ clinicId }: { clinicId?: string }) {
   const [matrix, setMatrix] = useState<Record<string, Record<string, boolean>>>({});
@@ -65,7 +79,8 @@ export default function SettingsModuleVisibility({ clinicId }: { clinicId?: stri
     setMatrix(prev => {
       const next = { ...prev };
       if (!next[role]) next[role] = {};
-      next[role] = { ...next[role], [mod]: !next[role][mod] };
+      const current = next[role][mod] ?? defaultVisible(role, mod);
+      next[role] = { ...next[role], [mod]: !current };
       return next;
     });
     setDirty(true);
@@ -81,7 +96,7 @@ export default function SettingsModuleVisibility({ clinicId }: { clinicId?: stri
           entries.push({
             module_key: mod,
             role,
-            is_visible: matrix[role]?.[mod] !== false,
+            is_visible: matrix[role]?.[mod] ?? defaultVisible(role, mod),
           });
         }
       }
@@ -131,7 +146,7 @@ export default function SettingsModuleVisibility({ clinicId }: { clinicId?: stri
                   {MODULE_LABELS[mod]}
                 </td>
                 {ROLES.map(role => {
-                  const visible = matrix[role]?.[mod] !== false;
+                  const visible = matrix[role]?.[mod] ?? defaultVisible(role, mod);
                   return (
                     <td key={role} style={{ padding: "10px 12px", textAlign: "center", borderBottom: `1px solid ${LINE}` }}>
                       <button
@@ -190,7 +205,7 @@ export default function SettingsModuleVisibility({ clinicId }: { clinicId?: stri
                     {BTN_LABELS[btn]}
                   </td>
                   {ROLES.map(role => {
-                    const visible = matrix[role]?.[btn] !== false;
+                    const visible = matrix[role]?.[btn] ?? defaultVisible(role, btn);
                     return (
                       <td key={role} style={{ padding: "10px 12px", textAlign: "center", borderBottom: `1px solid ${LINE}` }}>
                         <button

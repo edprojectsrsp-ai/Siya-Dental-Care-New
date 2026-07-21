@@ -492,15 +492,20 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
   NAV.splice(11, 0, {id:"mypractice",icon:"🩺",label:sanitize("My Practice")});
   const sidebarBg=theme?.sidebar||"#0F172A";
   const accentColor=theme?.accent||"#6366F1";
-  // Modules that default to restricted roles when the visibility matrix hasn't set them.
-  // (The matrix in Settings still overrides — admin can grant other roles explicitly.)
-  const DOCTOR_DEFAULT_ONLY = new Set(["website"]);
-  const ADMIN_DEFAULT_ONLY = new Set(["casemanager"]);
+  // Fallback role access for fresh clinics with no saved visibility matrix.
+  // Admin settings still override these defaults once saved.
+  const DEFAULT_MODULES_BY_ROLE: Record<string, Set<string>> = {
+    doctor: new Set(NAV.map(n => n.id).filter(id => id !== "mypractice")),
+    admin: new Set(NAV.map(n => n.id).filter(id => id !== "mypractice")),
+    nurse: new Set(["appointments", "patients", "queue", "lab"]),
+    receptionist: new Set(["appointments", "patients", "queue", "lab"]),
+    specialist: new Set(["queue", "patients", "lab", "mypractice"]),
+  };
   const visibleNav = NAV.filter(n => {
     const vis = moduleVisibility?.[staff?.role]?.[n.id];
-    if (vis === undefined && DOCTOR_DEFAULT_ONLY.has(n.id)) return staff?.role === "doctor";
-    if (vis === undefined && ADMIN_DEFAULT_ONLY.has(n.id)) return ["doctor", "admin"].includes(staff?.role);
-    return vis !== false;
+    if (vis !== undefined) return vis !== false;
+    const defaults = DEFAULT_MODULES_BY_ROLE[staff?.role];
+    return defaults ? defaults.has(n.id) : false;
   });
   // Specialist uses same interface — filtered queue + restricted workspace + "My Practice" sidebar module
   // (No separate portal redirect needed)
@@ -724,5 +729,4 @@ function WebView({queue,pending,stats,medicines,procedures,balances,show,staff,l
     </div>
   );
 }
-
 

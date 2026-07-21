@@ -123,7 +123,7 @@ modvis_router = APIRouter(prefix="/module-visibility", tags=["Module Visibility"
 KNOWN_MODULES = [
     "dashboard", "appointments", "patients", "queue", "kanban", "billing",
     "medicines", "procedures", "lab", "counters", "specialists", "staff",
-    "gallery", "website", "consult", "messages", "bulkwa", "settings",
+    "gallery", "website", "consult", "messages", "bulkwa", "settings", "casemanager",
     "workshop", "archived", "revenue", "mypractice",
 ]
 KNOWN_ROLES = ["doctor", "admin", "nurse", "receptionist", "specialist"]
